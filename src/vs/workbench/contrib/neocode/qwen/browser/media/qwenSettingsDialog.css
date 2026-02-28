@@ -1,0 +1,108 @@
+.neocode-qwen-editor {
+	height: 100%;
+	width: 100%;
+}
+
+.neocode-qwen-shell {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	gap: 10px;
+	padding: 12px;
+}
+
+.neocode-qwen-tabs {
+	display: flex;
+	gap: 8px;
+	border-bottom: 1px solid var(--vscode-panel-border);
+	padding-bottom: 8px;
+}
+
+.neocode-qwen-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border: 1px solid var(--vscode-panel-border);
+	padding: 6px 10px;
+	cursor: pointer;
+}
+
+.neocode-qwen-tab.active {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.neocode-qwen-content {
+	overflow: auto;
+	flex: 1;
+}
+
+.neocode-qwen-form {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(240px, 1fr));
+	gap: 10px 14px;
+}
+
+.neocode-qwen-field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.neocode-qwen-row-inline {
+	display: flex;
+	gap: 8px;
+}
+
+.neocode-qwen-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.neocode-qwen-button {
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border: 1px solid var(--vscode-panel-border);
+	padding: 6px 10px;
+	cursor: pointer;
+}
+
+.neocode-qwen-status {
+	border-top: 1px solid var(--vscode-panel-border);
+	padding-top: 8px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neocode-qwen-status.error {
+	color: var(--vscode-errorForeground);
+}
+
+.neocode-qwen-output {
+	padding: 10px;
+	background: var(--vscode-editorWidget-background);
+	border: 1px solid var(--vscode-panel-border);
+	max-height: 320px;
+	overflow: auto;
+}
+
+/* ── OAuth device flow area ─────────────────────────── */
+
+.neocode-qwen-oauth-area {
+	margin-top: 16px;
+	padding: 12px;
+	background: var(--vscode-editorWidget-background);
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 4px;
+}
+
+.neocode-qwen-oauth-status {
+	min-height: 20px;
+	padding: 6px 0;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	word-break: break-word;
+}

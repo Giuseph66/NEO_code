@@ -1,0 +1,622 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.neocode-swarm-editor {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	background-color: var(--vscode-editor-background);
+	color: var(--vscode-editor-foreground);
+	padding: 24px;
+	overflow: hidden;
+}
+
+.neocode-swarm-shell {
+	display: grid;
+	grid-template-columns: 240px 1fr;
+	gap: 32px;
+	height: 100%;
+}
+
+.neocode-swarm-nav {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	border-right: 1px solid var(--vscode-widget-border, #454545);
+	padding-right: 20px;
+}
+
+.neocode-swarm-tabs {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.neocode-swarm-tab {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	text-align: left;
+	border: none;
+	background: transparent;
+	color: var(--vscode-foreground);
+	border-radius: 4px;
+	padding: 8px 12px;
+	cursor: pointer;
+	font-size: 13px;
+	transition: all 0.2s;
+}
+
+.neocode-swarm-tab span.codicon {
+	font-size: 16px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neocode-swarm-tab:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.neocode-swarm-tab.active {
+	background: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+}
+
+.neocode-swarm-tab.active span.codicon {
+	color: inherit;
+}
+
+.neocode-swarm-tab .tab-label {
+	font-weight: 400;
+}
+
+.neocode-swarm-tab.active .tab-label {
+	font-weight: 600;
+}
+
+.neocode-swarm-main {
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+	overflow: hidden;
+	position: relative;
+}
+
+.neocode-swarm-toolbar {
+	position: absolute;
+	bottom: 32px;
+	right: 32px;
+	display: flex;
+	gap: 12px;
+	z-index: 100;
+	margin-bottom: 25px;
+}
+
+.neocode-swarm-content {
+	flex: 1;
+	overflow-y: auto;
+	padding-right: 12px;
+}
+
+/* Scrollbar styling */
+.neocode-swarm-content::-webkit-scrollbar {
+	width: 10px;
+}
+
+.neocode-swarm-content::-webkit-scrollbar-thumb {
+	background: var(--vscode-scrollbarSlider-background);
+}
+
+.neocode-swarm-content::-webkit-scrollbar-thumb:hover {
+	background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+.neocode-swarm-status {
+	font-size: 11px;
+	min-height: 18px;
+	color: var(--vscode-statusBar-foreground);
+	background: var(--vscode-statusBar-background);
+	padding: 2px 12px;
+	margin: 0 -24px -24px -24px;
+	border-top: 1px solid var(--vscode-widget-border, #454545);
+	display: flex;
+	align-items: center;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.neocode-swarm-status.error {
+	background: var(--vscode-statusBarItem-errorBackground, #c72e2e);
+	color: var(--vscode-statusBarItem-errorForeground, #ffffff);
+}
+
+.neocode-swarm-button {
+	padding: 6px 14px;
+	border-radius: 4px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	cursor: pointer;
+	font-size: 12px;
+}
+
+.neocode-swarm-button:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.neocode-swarm-button.primary {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.neocode-swarm-button.primary:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.neocode-form-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 20px;
+}
+
+.neocode-field-row {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.neocode-field-row label {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neocode-input,
+.neocode-select,
+.neocode-textarea {
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	border: 1px solid var(--vscode-input-border, transparent);
+	padding: 6px 10px;
+	border-radius: 4px;
+	font-family: inherit;
+}
+
+.neocode-input:focus,
+.neocode-select:focus,
+.neocode-textarea:focus {
+	border-color: var(--vscode-focusBorder);
+	outline: none;
+}
+
+.neocode-textarea-row {
+	grid-column: 1 / -1;
+}
+
+.neocode-textarea {
+	min-height: 100px;
+	resize: vertical;
+}
+
+.neocode-field-row-actions {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+.neocode-field-row-actions .neocode-input {
+	flex: 1;
+}
+
+.neocode-field-row-actions .neocode-swarm-button {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+
+.neocode-checkbox-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.neocode-checkbox-row input {
+	cursor: pointer;
+}
+
+.neocode-swarm-two-column {
+	display: grid;
+	grid-template-columns: 320px 1fr;
+	gap: 24px;
+}
+
+.neocode-provider-card {
+	padding: 12px;
+	border: 1px solid var(--vscode-widget-border, #454545);
+	border-radius: 6px;
+	cursor: pointer;
+	transition: all 0.2s;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.neocode-provider-card:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.neocode-provider-card.selected {
+	border-color: var(--vscode-focusBorder);
+	background: var(--vscode-list-inactiveSelectionBackground);
+}
+
+.neocode-provider-card-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-weight: 600;
+}
+
+.neocode-provider-card-subtitle {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neocode-provider-card-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.neocode-agent-card {
+	padding: 20px;
+	border: 1px solid var(--vscode-widget-border, #454545);
+	border-radius: 8px;
+	margin-bottom: 24px;
+	background: var(--vscode-editor-background);
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.neocode-agent-card-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding-bottom: 12px;
+	border-bottom: 1px solid var(--vscode-widget-border, #454545);
+}
+
+.neocode-agent-title-info {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex: 1;
+}
+
+.neocode-agent-title-info span.codicon {
+	font-size: 20px;
+	color: var(--vscode-symbolIcon-propertyForeground);
+}
+
+.neocode-agent-name-input {
+	background: transparent;
+	border: 1px solid transparent;
+	color: var(--vscode-foreground);
+	font-size: 16px;
+	font-weight: 600;
+	padding: 4px 8px;
+	border-radius: 4px;
+	width: 100%;
+	max-width: 300px;
+}
+
+.neocode-agent-name-input:hover,
+.neocode-agent-name-input:focus {
+	background: var(--vscode-input-background);
+	border-color: var(--vscode-focusBorder);
+}
+
+.neocode-agent-header-actions {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.neocode-agent-card-content {
+	display: grid;
+	grid-template-columns: 1fr 1.5fr;
+	gap: 24px;
+}
+
+.neocode-agent-params {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.neocode-agent-personality {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.neocode-title-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 16px;
+}
+
+
+.neocode-note {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	font-style: italic;
+	margin-top: -8px;
+	margin-bottom: 12px;
+}
+
+.neocode-actions-row {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+	margin-top: 12px;
+}
+
+.neocode-inline-field-row {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin-bottom: 8px;
+}
+
+.neocode-inline-status {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	margin: 10px 0;
+}
+
+.neocode-agent-skills-section {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 12px;
+	background: var(--vscode-editor-inactiveSelectionBackground, #37373d);
+	border-radius: 6px;
+	margin-top: 8px;
+}
+
+.neocode-skills-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.neocode-skills-header .skills-label {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neocode-agent-skills-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.neocode-skill-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.neocode-input-small,
+.neocode-select-small {
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	border: 1px solid var(--vscode-input-border, transparent);
+	padding: 3px 6px;
+	border-radius: 3px;
+	font-size: 11px;
+	flex: 1;
+}
+
+.neocode-input-small:focus,
+.neocode-select-small:focus {
+	border-color: var(--vscode-focusBorder);
+	outline: none;
+}
+
+.neocode-select-small {
+	flex: 0 0 100px;
+}
+
+.neocode-danger-zone {
+	margin-top: 40px;
+	padding: 20px;
+	border: 1px solid var(--vscode-errorForeground, #f48771);
+	border-radius: 8px;
+	background: rgba(244, 135, 113, 0.05);
+	display: none;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.neocode-danger-zone.revealed {
+	display: flex;
+}
+
+/* Capabilities Refactor */
+.neocode-capabilities-section {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-bottom: 32px;
+}
+
+.neocode-capability-item {
+	border: 1px solid var(--vscode-widget-border, #454545);
+	border-radius: 8px;
+	background: var(--vscode-editor-background);
+	overflow: hidden;
+	transition: box-shadow 0.2s ease;
+}
+
+.neocode-capability-item:hover {
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.neocode-capability-item-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px 16px;
+	background: var(--vscode-tab-inactiveBackground);
+	border-bottom: 1px solid var(--vscode-widget-border, #454545);
+	cursor: pointer;
+}
+
+.neocode-capability-item-title {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex: 1;
+}
+
+.neocode-capability-item-name {
+	font-weight: 600;
+	font-size: 13px;
+	color: var(--vscode-foreground);
+}
+
+.neocode-capability-item-description-summary {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 300px;
+}
+
+.neocode-capability-item-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.neocode-capability-item-content {
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.neocode-capability-item-details-grid {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 16px;
+}
+
+.neocode-badge {
+	font-size: 10px;
+	padding: 2px 6px;
+	border-radius: 10px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+	text-transform: uppercase;
+	font-weight: 700;
+}
+
+.neocode-expand-icon {
+	transition: transform 0.2s ease;
+	cursor: pointer;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neocode-expand-icon:hover {
+	color: var(--vscode-foreground);
+}
+
+.neocode-capability-item.expanded .neocode-expand-icon {
+	transform: rotate(90deg);
+}
+
+.neocode-capability-item .neocode-capability-item-content {
+	display: none;
+}
+
+.neocode-capability-item.expanded .neocode-capability-item-content {
+	display: flex;
+}
+
+.neocode-swarm-subnav .neocode-swarm-tab {
+	position: relative;
+}
+
+.neocode-swarm-subnav .neocode-swarm-tab.active::after {
+	content: '';
+	position: absolute;
+	bottom: -11px;
+	left: 0;
+	right: 0;
+	height: 2px;
+	background: var(--vscode-tab-activeBorder);
+}
+
+.neocode-danger-zone h4 {
+	margin: 0;
+	color: var(--vscode-errorForeground, #f48771);
+}
+
+.neocode-danger-zone p {
+	margin: 0;
+	font-size: 13px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neocode-notice-box {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 12px 16px;
+	background: var(--vscode-notifications-background, #252526);
+	border-left: 4px solid var(--vscode-button-background, #007acc);
+	border-radius: 4px;
+	margin-bottom: 20px;
+}
+
+.neocode-notice-box span.codicon {
+	color: var(--vscode-button-background, #007acc);
+	font-size: 16px;
+	margin-top: 2px;
+}
+
+.neocode-notice-box p {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--vscode-foreground);
+}
+
+.neocode-cli-group {
+	padding: 16px;
+	border: 1px solid var(--vscode-widget-border, #454545);
+	border-radius: 6px;
+	background: var(--vscode-editor-background);
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.neocode-cli-group h4 {
+	margin: 0;
+	font-size: 12px;
+	text-transform: uppercase;
+	color: var(--vscode-descriptionForeground);
+}

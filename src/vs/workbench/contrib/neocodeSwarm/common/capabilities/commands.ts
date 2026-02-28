@@ -1,0 +1,20 @@
+export default [
+	{ name: 'claude-commit-push-pr', description: 'Commit, push, and create pull request.', executablePath: 'models/claude-code/.claude/commands/commit-push-pr.md' },
+	{ name: 'claude-dedupe', description: 'Find duplicate GitHub issues.', executablePath: 'models/claude-code/.claude/commands/dedupe.md' },
+	{ name: 'claude-oncall-triage-ci', description: 'Triage issues for oncall label (CI workflow variant).', executablePath: 'models/claude-code/.claude/commands/oncall-triage-ci.md' },
+	{ name: 'claude-oncall-triage', description: 'Triage issues and apply oncall label.', executablePath: 'models/claude-code/.claude/commands/oncall-triage.md' },
+	{ name: 'claude-triage-issue', description: 'Analyze issue labels and classify reports.', executablePath: 'models/claude-code/.claude/commands/triage-issue.md' },
+	{ name: 'claude-new-sdk-app', description: 'Bootstrap a new Claude Agent SDK app.', executablePath: 'models/claude-code/plugins/agent-sdk-dev/commands/new-sdk-app.md' },
+	{ name: 'claude-code-review', description: 'Run pull request code review workflow.', executablePath: 'models/claude-code/plugins/code-review/commands/code-review.md' },
+	{ name: 'claude-clean-gone', description: 'Clean local branches deleted on remote.', executablePath: 'models/claude-code/plugins/commit-commands/commands/clean_gone.md' },
+	{ name: 'claude-plugin-commit-push-pr', description: 'Plugin variant for commit + push + PR.', executablePath: 'models/claude-code/plugins/commit-commands/commands/commit-push-pr.md' },
+	{ name: 'claude-commit', description: 'Create a git commit with current changes.', executablePath: 'models/claude-code/plugins/commit-commands/commands/commit.md' },
+	{ name: 'claude-feature-dev', description: 'Guided feature development workflow.', executablePath: 'models/claude-code/plugins/feature-dev/commands/feature-dev.md' },
+	{ name: 'claude-hookify-configure', description: 'Interactively enable/disable hookify rules.', executablePath: 'models/claude-code/plugins/hookify/commands/configure.md' },
+	{ name: 'claude-hookify-help', description: 'Help for hookify plugin usage.', executablePath: 'models/claude-code/plugins/hookify/commands/help.md' },
+	{ name: 'claude-hookify', description: 'Create hookify rules from unwanted behavior patterns.', executablePath: 'models/claude-code/plugins/hookify/commands/hookify.md' },
+	{ name: 'claude-hookify-list', description: 'List configured hookify rules.', executablePath: 'models/claude-code/plugins/hookify/commands/list.md' },
+	{ name: 'claude-create-plugin', description: 'Create plugin end-to-end with validation.', executablePath: 'models/claude-code/plugins/plugin-dev/commands/create-plugin.md' },
+	{ name: 'claude-review-pr', description: 'Comprehensive PR review using specialist agents.', executablePath: 'models/claude-code/plugins/pr-review-toolkit/commands/review-pr.md' },
+	{ name: 'qwen-grep-code', description: 'Summarize grep results for requested pattern.', executablePath: 'models/qwen-code/packages/cli/src/commands/extensions/examples/commands/commands/fs/grep-code.md' }
+] as const;

@@ -1,0 +1,23 @@
+export default [
+	{ name: 'pirate', summary: 'Responds as a pirate with playful language.', sourcePath: 'models/gemini-cli/packages/sdk/test-data/skills/pirate-skill/SKILL.md' },
+	{ name: 'ralph-wiggum', summary: 'Naive and distracted Simpson-style voice for comic responses.', sourcePath: 'models/claude-code/plugins/ralph-wiggum/README.md' },
+	{ name: 'claude-agent-sdk-verifier-py', summary: 'Audits Python Agent SDK projects for readiness and best practices.', sourcePath: 'models/claude-code/plugins/agent-sdk-dev/agents/agent-sdk-verifier-py.md' },
+	{ name: 'claude-agent-sdk-verifier-ts', summary: 'Audits TypeScript Agent SDK projects for readiness and best practices.', sourcePath: 'models/claude-code/plugins/agent-sdk-dev/agents/agent-sdk-verifier-ts.md' },
+	{ name: 'claude-code-architect', summary: 'Designs implementation architecture before coding.', sourcePath: 'models/claude-code/plugins/feature-dev/agents/code-architect.md' },
+	{ name: 'claude-code-explorer', summary: 'Maps execution paths and codebase behavior.', sourcePath: 'models/claude-code/plugins/feature-dev/agents/code-explorer.md' },
+	{ name: 'claude-feature-code-reviewer', summary: 'Performs strict bug and quality review against project standards.', sourcePath: 'models/claude-code/plugins/feature-dev/agents/code-reviewer.md' },
+	{ name: 'claude-conversation-analyzer', summary: 'Finds recurring failures in chat transcripts for hook creation.', sourcePath: 'models/claude-code/plugins/hookify/agents/conversation-analyzer.md' },
+	{ name: 'claude-agent-creator', summary: 'Creates new autonomous agents from user requirements.', sourcePath: 'models/claude-code/plugins/plugin-dev/agents/agent-creator.md' },
+	{ name: 'claude-plugin-validator', summary: 'Validates plugin structure and packaging quality.', sourcePath: 'models/claude-code/plugins/plugin-dev/agents/plugin-validator.md' },
+	{ name: 'claude-skill-reviewer', summary: 'Reviews skill definitions for clarity and quality.', sourcePath: 'models/claude-code/plugins/plugin-dev/agents/skill-reviewer.md' },
+	{ name: 'claude-pr-code-reviewer', summary: 'Performs PR-level review before merge.', sourcePath: 'models/claude-code/plugins/pr-review-toolkit/agents/code-reviewer.md' },
+	{ name: 'claude-code-simplifier', summary: 'Refactors code to simpler and maintainable forms.', sourcePath: 'models/claude-code/plugins/pr-review-toolkit/agents/code-simplifier.md' },
+	{ name: 'claude-comment-analyzer', summary: 'Checks comment quality and long-term accuracy.', sourcePath: 'models/claude-code/plugins/pr-review-toolkit/agents/comment-analyzer.md' },
+	{ name: 'claude-pr-test-analyzer', summary: 'Analyzes test coverage gaps in pull requests.', sourcePath: 'models/claude-code/plugins/pr-review-toolkit/agents/pr-test-analyzer.md' },
+	{ name: 'claude-silent-failure-hunter', summary: 'Hunts hidden failures and weak error handling.', sourcePath: 'models/claude-code/plugins/pr-review-toolkit/agents/silent-failure-hunter.md' },
+	{ name: 'claude-type-design-analyzer', summary: 'Evaluates domain types and invariants quality.', sourcePath: 'models/claude-code/plugins/pr-review-toolkit/agents/type-design-analyzer.md' },
+	{ name: 'codex-orchestrator', summary: 'Main Codex orchestrator profile for pair-programming workflows.', sourcePath: 'models/codex/codex-rs/core/templates/agents/orchestrator.md' },
+	{ name: 'codex-friendly', summary: 'Warm and collaborative Codex personality.', sourcePath: 'models/codex/codex-rs/core/templates/personalities/gpt-5.2-codex_friendly.md' },
+	{ name: 'codex-pragmatic', summary: 'Direct and pragmatic Codex personality.', sourcePath: 'models/codex/codex-rs/core/templates/personalities/gpt-5.2-codex_pragmatic.md' },
+	{ name: 'qwen-diary-writer', summary: 'Writes narrative diary-style summaries.', sourcePath: 'models/qwen-code/packages/cli/src/commands/extensions/examples/agent/agents/diary.md' }
+] as const;
