@@ -5,7 +5,9 @@
 		"outDir": "./out",
 		"typeRoots": [
 			"./node_modules/@types"
-		]
+		],
+		"useUnknownInCatchVariables": false,
+		"skipLibCheck": true
 	},
 	"include": [
 		"src/**/*",

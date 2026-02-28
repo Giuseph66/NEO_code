@@ -72,6 +72,7 @@ export interface INeocodeSwarmProviderConfig {
 	soulRule?: string;
 	status?: NeocodeSwarmProviderStatus;
 	statusMessage?: string;
+	lastConnectionTestAt?: number;
 	cliAuthEnabled?: boolean;
 }
 

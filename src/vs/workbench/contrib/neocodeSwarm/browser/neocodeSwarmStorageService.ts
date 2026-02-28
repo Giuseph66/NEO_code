@@ -136,7 +136,8 @@ export class NeocodeSwarmStorageService extends Disposable implements INeocodeSw
 				soulRule: provider.soulRule ?? existing?.soulRule ?? '',
 				status: mergeProviderStatus(existing?.status, provider.status),
 				statusMessage: provider.statusMessage ?? existing?.statusMessage,
-				cliAuthEnabled: provider.cliAuthEnabled ?? existing?.cliAuthEnabled
+				cliAuthEnabled: provider.cliAuthEnabled ?? existing?.cliAuthEnabled,
+				lastConnectionTestAt: provider.lastConnectionTestAt ?? existing?.lastConnectionTestAt
 			};
 
 			mergedByKey.set(key, merged);

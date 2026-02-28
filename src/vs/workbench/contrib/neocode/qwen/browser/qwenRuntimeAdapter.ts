@@ -8,7 +8,7 @@ import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { sanitizeQwenError } from '../common/qwenConfigSchema.js';
-import { IQwenConnectionTestResult, IQwenProviderConfig, IQwenRuntimeEnvResult, QwenProtocol } from '../common/qwenTypes.js';
+import { INeocodeToolDefinition, INeocodeToolExecutor, IQwenConnectionTestResult, IQwenProviderConfig, IQwenRuntimeEnvResult, QwenProtocol } from '../common/qwenTypes.js';
 import { IQwenOAuthWorkerService, NEO_QWEN_OAUTH_WORKER_CHANNEL } from '../common/qwenOAuthWorkerTypes.js';
 import { ProxyChannel } from '../../../../../base/parts/ipc/common/ipc.js';
 import { IChannel } from '../../../../../base/parts/ipc/common/ipc.js';
@@ -30,6 +30,12 @@ export interface IQwenSdkTaskOptions {
 	permissionMode?: 'plan' | 'default' | 'acceptEdits' | 'bypassPermissions';
 	excludeTools?: string[];
 	abortController?: AbortController;
+	/** When provided, enables multi-turn function calling for code editing. */
+	toolExecutor?: INeocodeToolExecutor;
+	/** System prompt override (used when toolExecutor is active). */
+	systemPrompt?: string;
+	/** Maximum tool-calling rounds before giving up (default: 15). */
+	maxToolCallRounds?: number;
 }
 
 /**
@@ -72,7 +78,7 @@ export class QwenRuntimeAdapter extends Disposable {
 
 	// ─── Streaming task execution ──────────────────────────────────────────
 
-	async *runTask(config: IQwenProviderConfig, envData: IQwenRuntimeEnvResult, options: IQwenSdkTaskOptions, token: CancellationToken): AsyncGenerator<IQwenStreamChunk, void, unknown> {
+	async *runTask(config: IQwenProviderConfig, envData: IQwenRuntimeEnvResult, options: IQwenSdkTaskOptions, token: CancellationToken = CancellationToken.None): AsyncGenerator<IQwenStreamChunk, void, unknown> {
 		if (token.isCancellationRequested) {
 			throw new Error('cancelled');
 		}
@@ -92,13 +98,25 @@ export class QwenRuntimeAdapter extends Disposable {
 		const onCancel = token.onCancellationRequested(() => abortController.abort());
 
 		try {
-			if (config.protocol === 'anthropic') {
-				yield* this.streamAnthropic(config, apiKey, options, abortController);
-			} else if (config.protocol === 'gemini' || config.protocol === 'vertex-ai') {
-				yield* this.streamGemini(config, apiKey, options, abortController);
+			if (options.toolExecutor) {
+				// Multi-turn function calling loop
+				if (config.protocol === 'anthropic') {
+					yield* this.runWithToolsAnthropic(config, apiKey, options, options.toolExecutor, abortController);
+				} else if (config.protocol === 'gemini' || config.protocol === 'vertex-ai') {
+					yield* this.runWithToolsGemini(config, apiKey, options, options.toolExecutor, abortController);
+				} else {
+					yield* this.runWithToolsOpenAI(config, apiKey, options, options.toolExecutor, abortController);
+				}
 			} else {
-				// Default: OpenAI-compatible (covers Qwen/DashScope, OpenAI, etc.)
-				yield* this.streamOpenAICompatible(config, envData.env, apiKey, options, abortController);
+				// Simple single-turn streaming (legacy path)
+				if (config.protocol === 'anthropic') {
+					yield* this.streamAnthropic(config, apiKey, options, abortController);
+				} else if (config.protocol === 'gemini' || config.protocol === 'vertex-ai') {
+					yield* this.streamGemini(config, apiKey, options, abortController);
+				} else {
+					// Default: OpenAI-compatible (covers Qwen/DashScope, OpenAI, etc.)
+					yield* this.streamOpenAICompatible(config, envData.env, apiKey, options, abortController);
+				}
 			}
 		} finally {
 			onCancel.dispose();
@@ -176,6 +194,344 @@ export class QwenRuntimeAdapter extends Disposable {
 
 	async detectCli(pathOverride?: string) {
 		return this.cliBridge.detectQwenCli(pathOverride);
+	}
+
+	// ─── Tool-calling loops (multi-turn, non-streaming) ──────────────────
+
+	/**
+	 * OpenAI-compatible multi-turn tool-calling loop.
+	 * Sends non-streaming requests, executes tool calls, and repeats until
+	 * the model returns a final text response.
+	 */
+	private async *runWithToolsOpenAI(
+		config: IQwenProviderConfig,
+		apiKey: string,
+		options: IQwenSdkTaskOptions,
+		toolExecutor: INeocodeToolExecutor,
+		abortController: AbortController
+	): AsyncGenerator<IQwenStreamChunk, void, unknown> {
+		const baseUrl = this.resolveBaseUrl(config);
+		const endpoint = `${baseUrl}/chat/completions`;
+		const modelId = this.resolveModelId(config);
+		const tools = this.formatToolsForOpenAI(toolExecutor.getTools());
+		const systemContent = options.systemPrompt ?? 'You are an expert code editing assistant.';
+		const maxRounds = options.maxToolCallRounds ?? 15;
+
+		const messages: Array<Record<string, unknown>> = [
+			{ role: 'system', content: systemContent },
+			{ role: 'user', content: options.prompt }
+		];
+
+		for (let round = 0; round < maxRounds; round++) {
+			const response = await fetch(endpoint, {
+				method: 'POST',
+				headers: {
+					'Authorization': `Bearer ${apiKey}`,
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					model: modelId,
+					messages,
+					tools,
+					tool_choice: 'auto',
+					stream: false,
+				}),
+				signal: abortController.signal,
+			});
+
+			if (!response.ok) {
+				const detail = await response.text().catch(() => '');
+				throw new Error(`HTTP ${response.status}: ${detail}`);
+			}
+
+			const data = await response.json() as {
+				choices?: Array<{
+					message?: {
+						role?: string;
+						content?: string | null;
+						tool_calls?: Array<{
+							id: string;
+							type: string;
+							function: { name: string; arguments: string };
+						}>;
+					};
+					finish_reason?: string;
+				}>;
+			};
+
+			const choice = data.choices?.[0];
+			const message = choice?.message;
+			if (!message) {
+				throw new Error('Empty response from API');
+			}
+
+			// Add the assistant's message to the conversation
+			messages.push({ role: 'assistant', content: message.content ?? null, tool_calls: message.tool_calls });
+
+			if (choice.finish_reason === 'tool_calls' && message.tool_calls?.length) {
+				for (const toolCall of message.tool_calls) {
+					yield { type: 'tool_call', toolName: toolCall.function.name };
+
+					let args: Record<string, unknown>;
+					try {
+						args = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
+					} catch {
+						args = {};
+					}
+
+					const result = await toolExecutor.execute({
+						id: toolCall.id,
+						name: toolCall.function.name,
+						arguments: args,
+					});
+
+					messages.push({
+						role: 'tool',
+						tool_call_id: toolCall.id,
+						content: result.content,
+					});
+				}
+			} else {
+				// Final text response
+				const content = message.content;
+				if (content) {
+					yield { type: 'content', value: content };
+				}
+				yield { type: 'done' };
+				return;
+			}
+		}
+
+		yield { type: 'content', value: '_Limite de iterações de ferramentas atingido._' };
+		yield { type: 'done' };
+	}
+
+	/**
+	 * Anthropic multi-turn tool-calling loop.
+	 */
+	private async *runWithToolsAnthropic(
+		config: IQwenProviderConfig,
+		apiKey: string,
+		options: IQwenSdkTaskOptions,
+		toolExecutor: INeocodeToolExecutor,
+		abortController: AbortController
+	): AsyncGenerator<IQwenStreamChunk, void, unknown> {
+		const baseUrl = this.resolveBaseUrl(config);
+		const endpoint = `${baseUrl}/messages`;
+		const tools = this.formatToolsForAnthropic(toolExecutor.getTools());
+		const systemContent = options.systemPrompt ?? 'You are an expert code editing assistant.';
+		const maxRounds = options.maxToolCallRounds ?? 15;
+
+		const messages: Array<Record<string, unknown>> = [
+			{ role: 'user', content: options.prompt }
+		];
+
+		for (let round = 0; round < maxRounds; round++) {
+			const response = await fetch(endpoint, {
+				method: 'POST',
+				headers: {
+					'x-api-key': apiKey,
+					'Content-Type': 'application/json',
+					'anthropic-version': '2023-06-01',
+				},
+				body: JSON.stringify({
+					model: config.modelId,
+					system: systemContent,
+					messages,
+					tools,
+					max_tokens: 8192,
+				}),
+				signal: abortController.signal,
+			});
+
+			if (!response.ok) {
+				const detail = await response.text().catch(() => '');
+				throw new Error(`HTTP ${response.status}: ${detail}`);
+			}
+
+			const data = await response.json() as {
+				content?: Array<{
+					type: string;
+					text?: string;
+					id?: string;
+					name?: string;
+					input?: Record<string, unknown>;
+				}>;
+				stop_reason?: string;
+			};
+
+			const contentBlocks = data.content ?? [];
+			const stopReason = data.stop_reason;
+
+			// Add assistant message to conversation
+			messages.push({ role: 'assistant', content: contentBlocks });
+
+			// Stream any text content immediately
+			for (const block of contentBlocks) {
+				if (block.type === 'text' && block.text) {
+					yield { type: 'content', value: block.text };
+				}
+			}
+
+			if (stopReason === 'tool_use') {
+				const toolResults: Array<Record<string, unknown>> = [];
+
+				for (const block of contentBlocks) {
+					if (block.type !== 'tool_use' || !block.id || !block.name) {
+						continue;
+					}
+					yield { type: 'tool_call', toolName: block.name };
+
+					const result = await toolExecutor.execute({
+						id: block.id,
+						name: block.name,
+						arguments: block.input ?? {},
+					});
+
+					toolResults.push({
+						type: 'tool_result',
+						tool_use_id: block.id,
+						content: result.content,
+						is_error: result.isError ?? false,
+					});
+				}
+
+				messages.push({ role: 'user', content: toolResults });
+			} else {
+				yield { type: 'done' };
+				return;
+			}
+		}
+
+		yield { type: 'content', value: '_Limite de iterações de ferramentas atingido._' };
+		yield { type: 'done' };
+	}
+
+	/**
+	 * Gemini multi-turn function-calling loop.
+	 */
+	private async *runWithToolsGemini(
+		config: IQwenProviderConfig,
+		apiKey: string,
+		options: IQwenSdkTaskOptions,
+		toolExecutor: INeocodeToolExecutor,
+		abortController: AbortController
+	): AsyncGenerator<IQwenStreamChunk, void, unknown> {
+		const baseUrl = this.resolveBaseUrl(config);
+		const model = encodeURIComponent(config.modelId);
+		const endpoint = `${baseUrl}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+		const tools = this.formatToolsForGemini(toolExecutor.getTools());
+		const systemInstruction = options.systemPrompt
+			? { parts: [{ text: options.systemPrompt }] }
+			: undefined;
+		const maxRounds = options.maxToolCallRounds ?? 15;
+
+		const contents: Array<Record<string, unknown>> = [
+			{ role: 'user', parts: [{ text: options.prompt }] }
+		];
+
+		for (let round = 0; round < maxRounds; round++) {
+			const body: Record<string, unknown> = { contents, tools };
+			if (systemInstruction) {
+				body['systemInstruction'] = systemInstruction;
+			}
+
+			const response = await fetch(endpoint, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body),
+				signal: abortController.signal,
+			});
+
+			if (!response.ok) {
+				const detail = await response.text().catch(() => '');
+				throw new Error(`HTTP ${response.status}: ${detail}`);
+			}
+
+			const data = await response.json() as {
+				candidates?: Array<{
+					content?: {
+						parts?: Array<{
+							text?: string;
+							functionCall?: { name: string; args?: Record<string, unknown> };
+						}>;
+					};
+				}>;
+			};
+
+			const parts = data.candidates?.[0]?.content?.parts ?? [];
+
+			// Add model's response to the conversation
+			contents.push({ role: 'model', parts });
+
+			const functionCalls = parts.filter(p => p.functionCall);
+			const textParts = parts.filter(p => typeof p.text === 'string' && p.text);
+
+			for (const tp of textParts) {
+				yield { type: 'content', value: tp.text! };
+			}
+
+			if (functionCalls.length > 0) {
+				const functionResponses: Array<Record<string, unknown>> = [];
+
+				for (const part of functionCalls) {
+					const fc = part.functionCall!;
+					yield { type: 'tool_call', toolName: fc.name };
+
+					const result = await toolExecutor.execute({
+						id: `${fc.name}_${round}`,
+						name: fc.name,
+						arguments: fc.args ?? {},
+					});
+
+					functionResponses.push({
+						functionResponse: {
+							name: fc.name,
+							response: { content: result.content },
+						},
+					});
+				}
+
+				contents.push({ role: 'user', parts: functionResponses });
+			} else {
+				yield { type: 'done' };
+				return;
+			}
+		}
+
+		yield { type: 'content', value: '_Limite de iterações de ferramentas atingido._' };
+		yield { type: 'done' };
+	}
+
+	// ─── Tool format helpers ───────────────────────────────────────────────────
+
+	private formatToolsForOpenAI(tools: INeocodeToolDefinition[]): unknown[] {
+		return tools.map(t => ({
+			type: 'function',
+			function: {
+				name: t.name,
+				description: t.description,
+				parameters: t.parameters,
+			},
+		}));
+	}
+
+	private formatToolsForAnthropic(tools: INeocodeToolDefinition[]): unknown[] {
+		return tools.map(t => ({
+			name: t.name,
+			description: t.description,
+			input_schema: t.parameters,
+		}));
+	}
+
+	private formatToolsForGemini(tools: INeocodeToolDefinition[]): unknown[] {
+		return [{
+			functionDeclarations: tools.map(t => ({
+				name: t.name,
+				description: t.description,
+				parameters: t.parameters,
+			})),
+		}];
 	}
 
 	// ─── OpenAI-compatible streaming (Qwen/DashScope, OpenAI, etc.) ──────

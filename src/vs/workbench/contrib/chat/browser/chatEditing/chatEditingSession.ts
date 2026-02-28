@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { DeferredPromise, ITask, Sequencer, SequencerByKey, timeout } from '../../../../../base/common/async.js';
+import { generateUuid } from '../../../../../base/common/uuid.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { BugIndicatingError } from '../../../../../base/common/errors.js';
@@ -785,6 +786,50 @@ export class ChatEditingSession extends Disposable implements IChatEditingSessio
 
 
 		return progress;
+	}
+
+	async addExternalReviewEntry(uri: URI, beforeContent: string): Promise<IModifiedFileEntry> {
+		await chatEditingSessionIsReady(this);
+
+		const requestId = generateUuid();
+		const telemetryInfo: IModifiedEntryTelemetryInfo = {
+			agentId: 'neocode.external',
+			command: undefined,
+			sessionResource: this.chatSessionResource,
+			requestId,
+			result: undefined,
+			modelId: undefined,
+			modeId: undefined,
+			applyCodeBlockSuggestionId: undefined,
+			feature: undefined,
+		};
+
+		// Create entry with beforeContent as the original (before) content
+		const entry = await this._getOrCreateModifiedFileEntry(uri, NotExistBehavior.Create, telemetryInfo, beforeContent);
+
+		// Reload modifiedModel from disk to get the current (after) content from the external edit
+		await entry.revertToDisk();
+
+		// Ensure the originalModel reflects the before content
+		if (entry instanceof ChatEditingModifiedDocumentEntry) {
+			entry.originalModel.setValue(beforeContent);
+		}
+
+		// Enable per-hunk accept/reject review mode
+		entry.enableReviewModeUntilSettled();
+
+		// Transition state to trigger decoration rendering
+		transaction(tx => {
+			if (this._state.get() !== ChatEditingSessionState.StreamingEdits) {
+				this._state.set(ChatEditingSessionState.StreamingEdits, tx);
+			}
+		});
+		await timeout(50);
+		transaction(tx => {
+			this._state.set(ChatEditingSessionState.Idle, tx);
+		});
+
+		return entry;
 	}
 
 	async undoInteraction(): Promise<void> {

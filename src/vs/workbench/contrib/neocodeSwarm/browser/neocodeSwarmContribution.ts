@@ -21,6 +21,7 @@ import { INeocodeSwarmSecretService, INeocodeSwarmStorageService } from '../comm
 import { NeocodeSwarmSecretService } from './neocodeSwarmSecretService.js';
 import { NeocodeSwarmStorageService } from './neocodeSwarmStorageService.js';
 import { NeocodeSwarmChatParticipant } from './neocodeSwarmChatParticipant.js';
+import { NeocodeExternalEditWatcher } from './neocodeExternalEditWatcher.js';
 import { registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
 
 const NEOCODE_SETTINGS_MENU = MenuId.for('NeoCodeSettingsMenu');
@@ -30,6 +31,7 @@ registerSingleton(INeocodeSwarmSecretService, NeocodeSwarmSecretService, Instant
 registerSingleton(INeocodeSwarmStorageService, NeocodeSwarmStorageService, InstantiationType.Delayed);
 
 registerWorkbenchContribution2(NeocodeSwarmChatParticipant.ID, NeocodeSwarmChatParticipant, WorkbenchPhase.AfterRestored);
+registerWorkbenchContribution2(NeocodeExternalEditWatcher.ID, NeocodeExternalEditWatcher, WorkbenchPhase.AfterRestored);
 
 MenuRegistry.appendMenuItem(MenuId.MenubarPreferencesMenu, {
 	title: localize('neoCodeMenu', "NeoCode"),

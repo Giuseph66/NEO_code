@@ -70,6 +70,45 @@ export interface IQwenConfigExport {
 	cliPathOverride?: string;
 }
 
+// ─── Tool calling interfaces ──────────────────────────────────────────────────
+
+/**
+ * Describes a tool that can be called by the AI model (JSON Schema parameters).
+ */
+export interface INeocodeToolDefinition {
+	name: string;
+	description: string;
+	parameters: Record<string, unknown>;
+}
+
+/**
+ * A single tool call made by the AI model.
+ */
+export interface INeocodeToolCall {
+	id: string;
+	name: string;
+	arguments: Record<string, unknown>;
+}
+
+/**
+ * Result of executing a tool call.
+ */
+export interface INeocodeToolResult {
+	id: string;
+	content: string;
+	isError?: boolean;
+}
+
+/**
+ * Executes tool calls on behalf of the AI model (implemented by the swarm layer).
+ */
+export interface INeocodeToolExecutor {
+	getTools(): INeocodeToolDefinition[];
+	execute(call: INeocodeToolCall): Promise<INeocodeToolResult>;
+}
+
+// ─── Auth service ─────────────────────────────────────────────────────────────
+
 export const IQwenAuthService = createDecorator<IQwenAuthService>('neocodeQwenAuthService');
 
 export interface IQwenAuthService {

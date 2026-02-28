@@ -140,7 +140,7 @@
 		"completionsMenuCommand": "github.copilot.toggleStatusMenu",
 		"completionsRefreshTokenCommand": "github.copilot.signIn",
 		"chatRefreshTokenCommand": "github.copilot.refreshToken",
-		"generateCommitMessageCommand": "github.copilot.git.generateCommitMessage",
+		"generateCommitMessageCommand": "neocode.git.generateCommitMessage",
 		"resolveMergeConflictsCommand": "github.copilot.git.resolveMergeConflicts",
 		"completionsAdvancedSetting": "github.copilot.advanced",
 		"completionsEnablementSetting": "github.copilot.enable",

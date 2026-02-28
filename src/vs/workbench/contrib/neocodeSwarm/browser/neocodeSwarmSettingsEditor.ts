@@ -1,6 +1,6 @@
 import * as DOM from '../../../../base/browser/dom.js';
 import { Codicon } from '../../../../base/common/codicons.js';
-import { DisposableStore, IReference } from '../../../../base/common/lifecycle.js';
+import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { IChannel, ProxyChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -43,6 +43,7 @@ import {
 } from './neocodeSwarmOpenAIOAuthController.js';
 import { NeocodeSwarmSecretService } from './neocodeSwarmSecretService.js';
 import { NeocodeSwarmStorageService } from './neocodeSwarmStorageService.js';
+import { NeocodeSwarmAgentGenerator } from './neocodeSwarmAgentGenerator.js';
 import { IQwenAuthService } from '../../neocode/qwen/common/qwenTypes.js';
 import { IGeminiAuthService, NEO_GEMINI_COMMAND_OPEN_SETTINGS } from '../../neocode/gemini/common/geminiTypes.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -98,6 +99,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 	private readonly secrets = this._register(this.instantiationService.createInstance(NeocodeSwarmSecretService));
 	private readonly providerTest = this.instantiationService.createInstance(NeocodeSwarmProviderTest);
 	private readonly openAIOAuth = this._register(this.instantiationService.createInstance(NeocodeSwarmOpenAIOAuthController));
+	private readonly generator = this.instantiationService.createInstance(NeocodeSwarmAgentGenerator);
 
 	private readonly tabDisposables = this._register(new DisposableStore());
 	private config: INeocodeSwarmConfig = createDefaultNeocodeSwarmConfig();
@@ -163,8 +165,12 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 
 	private testAllProvidersInBackground(): void {
 		let hasChanges = false;
+		const oneDayMs = 24 * 60 * 60 * 1000;
 		Promise.all(this.config.providers.map(async provider => {
 			if (!provider.enabled) {
+				return;
+			}
+			if (provider.lastConnectionTestAt && Date.now() - provider.lastConnectionTestAt < oneDayMs) {
 				return;
 			}
 			this.providerTestState.set(provider.id, { busy: true });
@@ -188,19 +194,22 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 				}
 
 				this.providerTestState.set(provider.id, { busy: false, ok: result.ok, message: result.message });
+				provider.lastConnectionTestAt = Date.now();
+				hasChanges = true;
 
 				if (provider.status !== (result.ok ? 'connected' : 'error') || provider.statusMessage !== result.message) {
 					provider.status = result.ok ? 'connected' : 'error';
 					provider.statusMessage = result.message;
-					hasChanges = true;
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				this.providerTestState.set(provider.id, { busy: false, ok: false, message });
+				provider.lastConnectionTestAt = Date.now();
+				hasChanges = true;
+
 				if (provider.status !== 'error' || provider.statusMessage !== message) {
 					provider.status = 'error';
 					provider.statusMessage = message;
-					hasChanges = true;
 				}
 			} finally {
 				this.renderActiveTab();
@@ -625,7 +634,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 
 		const lastStatus = model.status ?? 'notConfigured';
 		const statusText = model.statusMessage ?? this.formatProviderStatus(lastStatus);
-		status.textContent = `${lastStatus === 'connected' ? '✅' : lastStatus === 'error' ? '❌' : '⏳'} ${statusText} `;
+		status.textContent = `${lastStatus === 'connected' ? '✅' : lastStatus === 'error' ? '❌' : '⚪'} ${statusText} `;
 	}
 
 	/** Dedicated authentication panel for Qwen Code — uses the real CLI OAuth flow. */
@@ -638,7 +647,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 		const isBusy = state?.busy ?? false;
 
 		// Status display
-		const statusIcon = isBusy ? '⏳' : (lastStatus === 'connected' ? '✅' : lastStatus === 'error' ? '❌' : '⏳');
+		const statusIcon = isBusy ? '⏳' : (lastStatus === 'connected' ? '✅' : lastStatus === 'error' ? '❌' : '⚪');
 		DOM.append(container, DOM.$('.neocode-note', undefined, localize(
 			'neoSwarm.qwenOAuthNote',
 			"Qwen OAuth usa o fluxo integrado. Clicando em Iniciar, uma aba no navegador será aberta para autorização. Suas credenciais serão mantidas localmente em ~/.qwen/."
@@ -728,7 +737,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 			? localize('neoSwarm.geminiMethodApiKey', 'API Key')
 			: localize('neoSwarm.geminiMethodGoogleLogin', 'Login com Google');
 
-		const statusIcon = isBusy ? '⏳' : (lastStatus === 'connected' ? '✅' : lastStatus === 'error' ? '❌' : '⏳');
+		const statusIcon = isBusy ? '⏳' : (lastStatus === 'connected' ? '✅' : lastStatus === 'error' ? '❌' : '⚪');
 		DOM.append(container, DOM.$('.neocode-note', undefined, localize(
 			'neoSwarm.geminiNote',
 			'Gemini usa autenticacao dedicada. Metodo atual: {0}. Abra as configuracoes completas para mudar o metodo, chaves e diagnosticos.',
@@ -866,7 +875,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 		const header = DOM.append(container, DOM.$('.neocode-title-row'));
 		DOM.append(header, DOM.$('h3', undefined, localize('neoSwarm.agentsTitle', "Agentes de trabalho")));
 		this.appendButton(header, localize('neoSwarm.addAgent', "Novo Agente"), () => {
-			this.config.agents.push({
+			this.config.agents.unshift({
 				id: generateUuid(),
 				name: localize('neoSwarm.newAgent', "Novo Agente"),
 				role: 'custom',
@@ -881,6 +890,69 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 			});
 			this.renderActiveTab();
 		});
+
+		const generateContainer = DOM.append(container, DOM.$('.neocode-agent-generator'));
+		const generateInput = DOM.append(generateContainer, DOM.$('input.neocode-input', { type: 'text', placeholder: localize('neoSwarm.generateAgentPlaceholder', "Ex: Um agente revisor de código em React..."), style: 'flex: 1; padding: 6px; border-radius: 4px; border: 1px solid var(--vscode-settings-textInputBorder); background: var(--vscode-settings-textInputBackground); color: var(--vscode-settings-textInputForeground);' })) as HTMLInputElement;
+		const generateBtn = this.appendButton(generateContainer, localize('neoSwarm.generateAgentBtn', "Criar com IA ✨"), async () => {
+			const prompt = generateInput.value.trim();
+			if (!prompt) return;
+
+			const provider = this.config.providers.find(p => p.id === this.config.orchestrator.providerId);
+			if (!provider) {
+				this.notificationService.error(localize('neoSwarm.noOrchestrator', "Nenhum provedor de orquestração selecionado na aba Orquestração."));
+				return;
+			}
+
+			generateBtn.classList.add('busy');
+			generateBtn.textContent = '⏳ ' + localize('neoSwarm.generating', "Gerando...");
+			generateInput.disabled = true;
+
+			try {
+				let secret: string | undefined;
+				const scope = this.providerSecretScope(provider);
+				if (provider.authMethod === 'apiKey') {
+					secret = await this.secrets.getProviderSecret(scope, 'apiKey');
+				} else if (provider.authMethod === 'login') {
+					secret = await this.secrets.getProviderSecret(scope, 'loginToken');
+				}
+
+				const generated = await this.generator.generateAgent({ provider, secret, prompt }, CancellationToken.None);
+
+				this.config.agents.unshift({
+					id: generateUuid(),
+					name: generated.name || localize('neoSwarm.generatedAgent', "Agente Gerado"),
+					role: generated.role || 'custom',
+					providerId: this.config.orchestrator.providerId,
+					mode: generated.mode || 'parallel',
+					maxSteps: 8,
+					maxTokens: 8192,
+					timeoutSeconds: 300,
+					active: true,
+					soulRule: generated.soulRule || '',
+					skills: []
+				});
+
+				generateInput.value = '';
+				this.saveConfig(localize('neoSwarm.agentGenerated', "Agente criado com sucesso!"));
+				this.renderActiveTab();
+			} catch (e) {
+				const errorMsg = e instanceof Error ? e.message : String(e);
+				this.notificationService.error(localize('neoSwarm.generatorError', "Falha ao gerar agente: {0}", errorMsg));
+			} finally {
+				generateBtn.classList.remove('busy');
+				generateBtn.textContent = localize('neoSwarm.generateAgentBtn', "Criar com IA ✨");
+				generateInput.disabled = false;
+			}
+		});
+		generateContainer.style.display = 'flex';
+		generateContainer.style.gap = '8px';
+		generateContainer.style.marginBottom = '20px';
+		// Trigger generation on enter
+		this.tabDisposables.add(DOM.addDisposableListener(generateInput, DOM.EventType.KEY_UP, e => {
+			if (e.key === 'Enter') {
+				generateBtn.click();
+			}
+		}));
 
 		this.config.agents.forEach((agent, index) => this.renderAgentRow(container, agent, index));
 	}
@@ -1672,6 +1744,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 		this.providerTestState.set(provider.id, { busy: false, ok: result.ok, message: result.message });
 		provider.status = result.ok ? 'connected' : 'error';
 		provider.statusMessage = result.message;
+		provider.lastConnectionTestAt = Date.now();
 		this.saveConfig(undefined, true);
 		this.renderActiveTab();
 		this.updateStatus(result.message, !result.ok);
@@ -1982,18 +2055,6 @@ function expandHomePath(value: string): string | undefined {
 	return value.replace(/\$\{userHome\}/g, h);
 }
 
-function dedupeUris(values: URI[]): URI[] {
-	const result: URI[] = [];
-	const seen = new Set<string>();
-	for (const value of values) {
-		const key = value.toString();
-		if (!seen.has(key)) {
-			seen.add(key);
-			result.push(value);
-		}
-	}
-	return result;
-}
 
 function getAncestorDirectories(startDir: string, maxDepth: number): string[] {
 	const result: string[] = [];

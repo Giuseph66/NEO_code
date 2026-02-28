@@ -855,13 +855,18 @@ registerAction2(class extends Action2 {
 
 	override async run(accessor: ServicesAccessor, ...args: unknown[]): Promise<void> {
 		const commandService = accessor.get(ICommandService);
+		const command = product.defaultChatAgent?.generateCommitMessageCommand;
+
+		if (command === 'neocode.git.generateCommitMessage') {
+			await commandService.executeCommand(command, ...args);
+			return;
+		}
 
 		const result = await commandService.executeCommand(CHAT_SETUP_SUPPORT_ANONYMOUS_ACTION_ID);
 		if (!result) {
 			return;
 		}
 
-		const command = product.defaultChatAgent?.generateCommitMessageCommand;
 		if (!command) {
 			return;
 		}

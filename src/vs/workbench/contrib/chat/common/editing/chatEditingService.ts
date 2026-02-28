@@ -114,6 +114,15 @@ export interface IChatEditingSession extends IDisposable {
 	stopExternalEdits(responseModel: IChatResponseModel, operationId: number): Promise<IChatProgress[]>;
 
 	/**
+	 * Creates a pending-review diff entry for a file that was modified externally
+	 * (by an agent that doesn't go through a chat response model).
+	 * Shows accept/reject UI in the editor.
+	 * @param uri File that was changed
+	 * @param beforeContent Content of the file BEFORE the external agent modified it
+	 */
+	addExternalReviewEntry(uri: URI, beforeContent: string): Promise<IModifiedFileEntry>;
+
+	/**
 	 * Gets the snapshot URI of a file at the request and _after_ changes made in the undo stop.
 	 * @param uri File in the workspace
 	 */

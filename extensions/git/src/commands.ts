@@ -1032,6 +1032,47 @@ export class CommandCenter {
 		await this.cloneManager.clone(url, { parentPath, ...options });
 	}
 
+	@command('neocode.git.generateCommitMessage', { repository: true })
+	async generateCommitMessage(repository: Repository): Promise<void> {
+		if (repository.inputBox.value) {
+			const choice = await window.showWarningMessage(
+				l10n.t('There is already a commit message. Do you want to overwrite it?'),
+				{ modal: true },
+				l10n.t('Overwrite')
+			);
+			if (choice !== l10n.t('Overwrite')) {
+				return;
+			}
+		}
+
+		let diff = await repository.diff(true); // Staged changes
+		if (!diff) {
+			diff = await repository.diff(false); // Unstaged changes
+		}
+
+		if (!diff) {
+			window.showInformationMessage(l10n.t('No changes to commit.'));
+			return;
+		}
+
+		try {
+			await window.withProgress({
+				location: ProgressLocation.SourceControl,
+				title: l10n.t('Generating commit message (NeoCode)...'),
+				cancellable: true
+			}, async (_, token) => {
+				const truncatedDiff = diff.substring(0, 100000);
+				const prompt = `Gere uma mensagem de commit de acordo com as convencionais de git para as seguintes mudanças. Foque apenas em retornar a mensagem de commit, sem introduções ou Markdown desnecessário.\n\nMudanças:\n${truncatedDiff}`;
+				const message = await commands.executeCommand<string>('neocode.executeOrchestrator', prompt, token);
+				if (message) {
+					repository.inputBox.value = message.trim();
+				}
+			});
+		} catch (err: any) {
+			window.showErrorMessage(l10n.t('Failed to generate commit message: {0}', err.message || err));
+		}
+	}
+
 	@command('git.cloneRecursive')
 	async cloneRecursive(url?: string, parentPath?: string): Promise<void> {
 		await this.cloneManager.clone(url, { parentPath, recursive: true });
