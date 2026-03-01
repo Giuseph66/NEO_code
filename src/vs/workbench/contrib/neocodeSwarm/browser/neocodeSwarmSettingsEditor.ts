@@ -115,6 +115,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 	private modelSearchTerm = '';
 	private activeCapabilityTab: 'personalities' | 'skills' | 'hooks' | 'commands' = 'personalities';
 	private expandedCapabilities = new Set<string>();
+	private expandedAgents = new Set<string>();
 
 	constructor(
 		group: IEditorGroup,
@@ -886,7 +887,11 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 				timeoutSeconds: 180,
 				active: true,
 				soulRule: '',
-				skills: []
+				skills: [],
+				personalityIds: [],
+				skillIds: [],
+				hookIds: [],
+				commandIds: []
 			});
 			this.renderActiveTab();
 		});
@@ -916,7 +921,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 					secret = await this.secrets.getProviderSecret(scope, 'loginToken');
 				}
 
-				const generated = await this.generator.generateAgent({ provider, secret, prompt }, CancellationToken.None);
+				const generated = await this.generator.generateAgent({ provider, secret, prompt, capabilities: this.config.capabilities }, CancellationToken.None);
 
 				this.config.agents.unshift({
 					id: generateUuid(),
@@ -929,7 +934,11 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 					timeoutSeconds: 300,
 					active: true,
 					soulRule: generated.soulRule || '',
-					skills: []
+					skills: [],
+					personalityIds: generated.personalityIds ?? [],
+					skillIds: generated.skillIds ?? [],
+					hookIds: generated.hookIds ?? [],
+					commandIds: generated.commandIds ?? []
 				});
 
 				generateInput.value = '';
@@ -958,43 +967,65 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 	}
 
 	private renderAgentRow(container: HTMLElement, agent: INeocodeSwarmAgentConfig, index: number): void {
+		const isExpanded = this.expandedAgents.has(agent.id);
 		const card = DOM.append(container, DOM.$('.neocode-agent-card'));
+		if (isExpanded) {
+			card.classList.add('expanded');
+		}
 
 		// Header Row
 		const header = DOM.append(card, DOM.$('.neocode-agent-card-header'));
 		const titleInfo = DOM.append(header, DOM.$('.neocode-agent-title-info'));
+
+		const expandIcon = DOM.append(titleInfo, DOM.$(`span.codicon.neocode-expand-icon`));
+		expandIcon.classList.add(isExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right');
+
 		DOM.append(titleInfo, DOM.$('span.codicon.codicon-account'));
 		const nameInput = DOM.append(titleInfo, DOM.$('input.neocode-agent-name-input', { type: 'text', value: agent.name })) as HTMLInputElement;
 		this.tabDisposables.add(DOM.addDisposableListener(nameInput, DOM.EventType.CHANGE, () => agent.name = nameInput.value));
+		this.tabDisposables.add(DOM.addDisposableListener(nameInput, DOM.EventType.CLICK, (e) => e.stopPropagation()));
 
 		const headerActions = DOM.append(header, DOM.$('.neocode-agent-header-actions'));
+
 		const activeToggle = DOM.append(headerActions, DOM.$('input', { type: 'checkbox' })) as HTMLInputElement;
 		activeToggle.checked = agent.active;
 		this.tabDisposables.add(DOM.addDisposableListener(activeToggle, DOM.EventType.CHANGE, () => agent.active = activeToggle.checked));
-		DOM.append(headerActions, DOM.$('label', undefined, localize('neoSwarm.active', "Ativo")));
-		this.appendButton(headerActions, localize('neoSwarm.up', "Subir"), () => {
-			if (index <= 0) {
-				return;
-			}
+		this.tabDisposables.add(DOM.addDisposableListener(activeToggle, DOM.EventType.CLICK, (e) => e.stopPropagation()));
+
+		const activeLabel = DOM.append(headerActions, DOM.$('label', undefined, localize('neoSwarm.active', "Ativo")));
+		this.tabDisposables.add(DOM.addDisposableListener(activeLabel, DOM.EventType.CLICK, (e) => e.stopPropagation()));
+
+		this.appendButton(headerActions, localize('neoSwarm.up', "Subir"), (e) => {
+			e?.stopPropagation();
+			if (index <= 0) return;
 			const previous = this.config.agents[index - 1];
 			this.config.agents[index - 1] = this.config.agents[index];
 			this.config.agents[index] = previous;
 			this.renderActiveTab();
 		});
-		this.appendButton(headerActions, localize('neoSwarm.down', "Descer"), () => {
-			if (index >= this.config.agents.length - 1) {
-				return;
-			}
+		this.appendButton(headerActions, localize('neoSwarm.down', "Descer"), (e) => {
+			e?.stopPropagation();
+			if (index >= this.config.agents.length - 1) return;
 			const next = this.config.agents[index + 1];
 			this.config.agents[index + 1] = this.config.agents[index];
 			this.config.agents[index] = next;
 			this.renderActiveTab();
 		});
 
-		this.appendButton(headerActions, localize('neoSwarm.remove', "Remover"), () => {
+		this.appendButton(headerActions, localize('neoSwarm.remove', "Remover"), (e) => {
+			e?.stopPropagation();
 			this.config.agents = this.config.agents.filter(candidate => candidate.id !== agent.id);
 			this.renderActiveTab();
 		}).classList.add('danger');
+
+		this.tabDisposables.add(DOM.addDisposableListener(header, DOM.EventType.CLICK, () => {
+			if (this.expandedAgents.has(agent.id)) {
+				this.expandedAgents.delete(agent.id);
+			} else {
+				this.expandedAgents.add(agent.id);
+			}
+			this.renderActiveTab();
+		}));
 
 		// Content Grid
 		const content = DOM.append(card, DOM.$('.neocode-agent-card-content'));
@@ -1009,62 +1040,161 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 			{ value: 'debugger', label: localize('neoSwarm.roleDebugger', "Depurador") },
 			{ value: 'custom', label: localize('neoSwarm.roleCustom', "Personalizado") }
 		], value => agent.role = value as INeocodeSwarmAgentConfig['role']);
+
+		if (agent.role === 'custom') {
+			DOM.append(params, DOM.$('div.neocode-note', { style: 'margin-top: -12px; margin-bottom: 0;' }, localize('neoSwarm.customRoleHint', "O comportamento sera definido pela Regra de Alma.")));
+		}
+
 		this.appendSelect(params, localize('neoSwarm.agentMode', "Modo"), agent.mode, [
 			{ value: 'parallel', label: localize('neoSwarm.modeParallel', "Paralelo") },
-			{ value: 'serial', label: localize('neoSwarm.modeSerial', "Serial") }
+			{ value: 'serial', label: localize('neoSwarm.modeSequencial', "Sequencial") }
 		], value => agent.mode = value as INeocodeSwarmAgentConfig['mode']);
 		this.appendSelect(params, localize('neoSwarm.agentModel', "Modelo"), agent.providerId ?? '', this.enabledModelOptions(), value => agent.providerId = value || undefined);
-		this.appendLabeledInput(params, localize('neoSwarm.maxSteps', "Passos Max"), String(agent.maxSteps), value => agent.maxSteps = parseInt(value) || 8);
-		this.appendLabeledInput(params, localize('neoSwarm.maxTokens', "Tokens Max"), String(agent.maxTokens), value => agent.maxTokens = parseInt(value) || 8192);
 		this.appendLabeledInput(params, localize('neoSwarm.timeoutSeconds', "Timeout (s)"), String(agent.timeoutSeconds), value => agent.timeoutSeconds = parseInt(value) || 180);
 
-		// Right: Soul Rule
-		const personality = DOM.append(content, DOM.$('.neocode-agent-personality'));
-		this.appendLabeledTextArea(personality, localize('neoSwarm.soulRule', "Personalidade / Regras de Alma"), agent.soulRule ?? '', value => agent.soulRule = value || undefined);
-
-		// Bottom: Skills
-		this.renderAgentSkills(card, agent);
+		// Right: Capabilities
+		const capabilitiesPanel = DOM.append(content, DOM.$('.neocode-agent-personality'));
+		this.renderAgentCapabilities(capabilitiesPanel, agent);
 	}
 
-	private renderAgentSkills(parent: HTMLElement, agent: INeocodeSwarmAgentConfig): void {
-		if (!agent.skills) {
-			agent.skills = [];
-		}
-		const container = DOM.append(parent, DOM.$('.neocode-agent-skills-section'));
-		const header = DOM.append(container, DOM.$('.neocode-skills-header'));
-		DOM.append(header, DOM.$('span.skills-label', undefined, localize('neoSwarm.agentSkills', "Habilidades (Tools)")));
-		this.appendButton(header, localize('neoSwarm.addSkill', "Adicionar"), () => {
-			agent.skills!.push({
-				id: generateUuid(),
-				name: localize('neoSwarm.newSkill', "Nova Habilidade"),
-				type: 'terminal'
-			});
-			this.renderActiveTab();
-		});
+	private renderAgentCapabilities(container: HTMLElement, agent: INeocodeSwarmAgentConfig): void {
+		if (!agent.personalityIds) { agent.personalityIds = []; }
+		if (!agent.skillIds) { agent.skillIds = []; }
+		if (!agent.hookIds) { agent.hookIds = []; }
+		if (!agent.commandIds) { agent.commandIds = []; }
 
-		const skillsList = DOM.append(container, DOM.$('.neocode-agent-skills-list'));
-		agent.skills.forEach((skill, sIdx) => {
-			const skillRow = DOM.append(skillsList, DOM.$('.neocode-skill-row'));
-			const nameInput = DOM.append(skillRow, DOM.$('input.neocode-input-small', { type: 'text', value: skill.name })) as HTMLInputElement;
-			this.tabDisposables.add(DOM.addDisposableListener(nameInput, DOM.EventType.CHANGE, () => skill.name = nameInput.value));
+		const caps = this.config.capabilities;
+		const section = DOM.append(container, DOM.$('.neocode-agent-caps-section'));
 
-			const typeSelect = DOM.append(skillRow, DOM.$('select.neocode-select-small')) as HTMLSelectElement;
-			[
-				{ value: 'terminal', label: localize('neoSwarm.skillType.terminal', "Terminal") },
-				{ value: 'filesystem', label: localize('neoSwarm.skillType.filesystem', "Arquivos") },
-				{ value: 'search', label: localize('neoSwarm.skillType.search', "Busca") },
-				{ value: 'codebase', label: localize('neoSwarm.skillType.codebase', "Codebase") }
-			].forEach(opt => {
-				const o = DOM.append(typeSelect, DOM.$('option', { value: opt.value }, opt.label)) as HTMLOptionElement;
-				if (skill.type === opt.value) o.selected = true;
-			});
-			this.tabDisposables.add(DOM.addDisposableListener(typeSelect, DOM.EventType.CHANGE, () => skill.type = typeSelect.value as any));
+		const renderGroup = <T extends { id: string; name: string; description?: string }>(
+			labelKey: string,
+			labelText: string,
+			items: readonly T[],
+			selectedIds: string[],
+			onChange: (ids: string[]) => void
+		) => {
+			const groupKey = `${agent.id}_${labelKey}`;
+			const isGroupExpanded = this.expandedCapabilities.has(groupKey);
 
-			this.appendButton(skillRow, localize('neoSwarm.removeSkill', "X"), () => {
-				agent.skills!.splice(sIdx, 1);
+			const group = DOM.append(section, DOM.$('.neocode-caps-group'));
+			if (isGroupExpanded) {
+				group.classList.add('expanded');
+			}
+
+			// Header with Label and Mark All/Unmark All
+			const header = DOM.append(group, DOM.$('.neocode-caps-group-header'));
+
+			const titleContainer = DOM.append(header, DOM.$('.neocode-caps-group-title'));
+			const expandIcon = DOM.append(titleContainer, DOM.$(`span.codicon.neocode-expand-icon`));
+			expandIcon.classList.add(isGroupExpanded ? 'codicon-chevron-down' : 'codicon-chevron-right');
+
+			DOM.append(titleContainer, DOM.$('span.neocode-caps-group-label', undefined, localize(labelKey, labelText)));
+
+			this.tabDisposables.add(DOM.addDisposableListener(header, DOM.EventType.CLICK, () => {
+				if (this.expandedCapabilities.has(groupKey)) {
+					this.expandedCapabilities.delete(groupKey);
+				} else {
+					this.expandedCapabilities.add(groupKey);
+				}
 				this.renderActiveTab();
-			}).classList.add('danger');
-		});
+			}));
+
+			const actions = DOM.append(header, DOM.$('.neocode-caps-group-actions'));
+			this.tabDisposables.add(DOM.addDisposableListener(actions, DOM.EventType.CLICK, (e) => e.stopPropagation()));
+
+			const itemsContainer = DOM.append(group, DOM.$('.neocode-caps-items'));
+
+			if (items.length > 0) {
+				const markAllBtn = this.appendButton(actions, localize('neoSwarm.markAll', "Marcar todas"), () => {
+					const allIds = items.map(i => i.id);
+					onChange(Array.from(new Set([...selectedIds, ...allIds])));
+					this.renderActiveTab();
+				});
+				markAllBtn.style.padding = '2px 6px';
+				markAllBtn.style.fontSize = '10px';
+
+				const unmarkAllBtn = this.appendButton(actions, localize('neoSwarm.unmarkAll', "Desmarcar todas"), () => {
+					const itemIds = items.map(i => i.id);
+					onChange(selectedIds.filter(id => !itemIds.includes(id)));
+					this.renderActiveTab();
+				});
+				unmarkAllBtn.style.padding = '2px 6px';
+				unmarkAllBtn.style.fontSize = '10px';
+
+				// Search filter
+				const searchContainer = DOM.append(group, DOM.$('.neocode-caps-search-container'));
+				const searchInput = DOM.append(searchContainer, DOM.$('input.neocode-input', {
+					type: 'text',
+					placeholder: localize('neoSwarm.caps.search', "Filtrar...")
+				})) as HTMLInputElement;
+
+				const renderItems = (filter = '') => {
+					DOM.clearNode(itemsContainer);
+					const filtered = items.filter(i =>
+						i.name.toLowerCase().includes(filter.toLowerCase()) ||
+						(i.description?.toLowerCase().includes(filter.toLowerCase()) ?? false)
+					);
+
+					if (filtered.length === 0) {
+						DOM.append(itemsContainer, DOM.$('span.neocode-caps-empty', undefined, localize('neoSwarm.caps.noMatches', "Nenhuma correspondencia")));
+						return;
+					}
+
+					for (const item of filtered) {
+						const row = DOM.append(itemsContainer, DOM.$('.neocode-caps-item'));
+						const checkbox = DOM.append(row, DOM.$('input', { type: 'checkbox' })) as HTMLInputElement;
+						checkbox.checked = selectedIds.includes(item.id);
+
+						const itemText = DOM.append(row, DOM.$('.neocode-caps-item-text'));
+						DOM.append(itemText, DOM.$('span.neocode-caps-item-name', undefined, item.name));
+						if (item.description) {
+							DOM.append(itemText, DOM.$('span.neocode-caps-item-description', undefined, item.description));
+						}
+
+						this.tabDisposables.add(DOM.addDisposableListener(row, DOM.EventType.CLICK, (e) => {
+							if (e.target === checkbox) return;
+							checkbox.checked = !checkbox.checked;
+							checkbox.dispatchEvent(new Event('change'));
+						}));
+
+						this.tabDisposables.add(DOM.addDisposableListener(checkbox, DOM.EventType.CHANGE, () => {
+							if (checkbox.checked) {
+								if (!selectedIds.includes(item.id)) { selectedIds.push(item.id); }
+							} else {
+								const idx = selectedIds.indexOf(item.id);
+								if (idx !== -1) { selectedIds.splice(idx, 1); }
+							}
+							onChange(selectedIds);
+						}));
+					}
+				};
+
+				this.tabDisposables.add(DOM.addDisposableListener(searchInput, DOM.EventType.INPUT, () => {
+					renderItems(searchInput.value.trim());
+				}));
+
+				renderItems();
+			} else {
+				DOM.append(itemsContainer, DOM.$('span.neocode-caps-empty', undefined, localize('neoSwarm.caps.empty', "(nenhuma configurada na aba Capacidades)")));
+			}
+		};
+
+		renderGroup('neoSwarm.caps.personalities', "Personalidades", caps.personalities, agent.personalityIds, ids => agent.personalityIds = ids);
+		renderGroup('neoSwarm.caps.skills', "Habilidades", caps.skills, agent.skillIds, ids => agent.skillIds = ids);
+		renderGroup('neoSwarm.caps.hooks', "Gatilhos", caps.hooks, agent.hookIds, ids => agent.hookIds = ids);
+		renderGroup('neoSwarm.caps.commands', "Comandos", caps.commands, agent.commandIds, ids => agent.commandIds = ids);
+
+		// Additional soul rule override
+		const soulSection = DOM.append(section, DOM.$('.neocode-agent-soul-override'));
+		const soulHeader = DOM.append(soulSection, DOM.$('.neocode-textarea-header'));
+		DOM.append(soulHeader, DOM.$('span.neocode-caps-group-label', undefined, localize('neoSwarm.soulRuleExtra', "Regra de Alma (adicional)")));
+
+		this.appendButton(soulHeader, localize('neoSwarm.clear', "Limpar"), () => {
+			agent.soulRule = '';
+			this.renderActiveTab();
+		}).style.fontSize = '10px';
+
+		this.appendLabeledTextArea(soulSection, '', agent.soulRule ?? '', value => agent.soulRule = value || undefined);
 	}
 
 	private renderCapabilitiesTab(container: HTMLElement): void {
@@ -1505,10 +1635,10 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 		return row;
 	}
 
-	private appendButton(parent: HTMLElement, label: string, onClick: () => void, primary = false): HTMLButtonElement {
+	private appendButton(parent: HTMLElement, label: string, onClick: (e?: MouseEvent) => void, primary = false): HTMLButtonElement {
 		const button = DOM.append(parent, DOM.$('button.neocode-swarm-button', undefined, label)) as HTMLButtonElement;
 		if (primary) button.classList.add('primary');
-		this.tabDisposables.add(DOM.addDisposableListener(button, DOM.EventType.CLICK, onClick));
+		this.tabDisposables.add(DOM.addDisposableListener(button, DOM.EventType.CLICK, (e: MouseEvent) => onClick(e)));
 		return button;
 	}
 

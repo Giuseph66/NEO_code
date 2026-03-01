@@ -52,7 +52,11 @@ export class NeocodeSwarmStorageService extends Disposable implements INeocodeSw
 				agents: (Array.isArray(parsed.agents) ? parsed.agents : fallback.agents).map(a => ({
 					...a,
 					providerId: remappedProviderIdByLegacyId.get(a.providerId ?? '') ?? a.providerId,
-					skills: a.skills ?? []
+					skills: a.skills ?? [],
+					personalityIds: a.personalityIds ?? [],
+					skillIds: a.skillIds ?? [],
+					hookIds: a.hookIds ?? [],
+					commandIds: a.commandIds ?? []
 				})),
 				orchestrator: {
 					...fallback.orchestrator,

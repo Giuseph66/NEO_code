@@ -99,6 +99,10 @@ export interface INeocodeSwarmAgentConfig {
 	active: boolean;
 	soulRule?: string;
 	skills?: INeocodeSwarmSkillConfig[];
+	personalityIds?: string[];
+	skillIds?: string[];
+	hookIds?: string[];
+	commandIds?: string[];
 }
 
 export interface INeocodeSwarmSecurityConfig {
@@ -203,7 +207,11 @@ function createDefaultAgent(name: string, role: NeocodeSwarmAgentRole): INeocode
 		timeoutSeconds: 180,
 		active: true,
 		soulRule: '',
-		skills: []
+		skills: [],
+		personalityIds: [],
+		skillIds: [],
+		hookIds: [],
+		commandIds: []
 	};
 }
 

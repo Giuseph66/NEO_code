@@ -6,7 +6,7 @@
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
-import { INeocodeSwarmAgentConfig, INeocodeSwarmProviderConfig } from '../common/neocodeSwarmTypes.js';
+import { INeocodeSwarmAgentConfig, INeocodeSwarmCapabilitiesConfig, INeocodeSwarmProviderConfig } from '../common/neocodeSwarmTypes.js';
 import { URI } from '../../../../base/common/uri.js';
 import { parseStoredOpenAITokenBundle } from './neocodeSwarmOpenAIOAuthController.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
@@ -17,27 +17,8 @@ export interface IAgentGenerationContext {
 	provider: INeocodeSwarmProviderConfig;
 	secret?: string;
 	prompt: string;
+	capabilities?: INeocodeSwarmCapabilitiesConfig;
 }
-
-const GENERATOR_SYSTEM_PROMPT = `You are an expert AI orchestrator responsible for compiling configurations for new specialized AI Agents based on a user's prompt.
-You must output ONLY valid JSON describing the agent. Do not wrap it in markdown block quotes (like \`\`\`json). Just the raw object.
-
-The output MUST abide by this TypeScript interface structure:
-{
-	"name": string, // A short, descriptive name for the agent (max 3 words)
-	"role": "planner" | "coder" | "reviewer" | "researcher" | "debugger" | "custom",
-	"mode": "parallel" | "serial", // Default to "parallel" unless the task implies strictly serial execution
-	"soulRule": string, // A highly detailed, robust system prompt governing how the agent should behave, its constraints, and standard operating procedures. Be comprehensive.
-}
-
-For example, if the user asks for a 'frontend bug fixer', you might return:
-{
-	"name": "Frontend Debugger",
-	"role": "debugger",
-	"mode": "parallel",
-	"soulRule": "You are a specialized frontend debugger. Your primary responsibility is analyzing React, DOM, and CSS issues..."
-}
-`;
 
 export class NeocodeSwarmAgentGenerator {
 	constructor(
@@ -46,13 +27,72 @@ export class NeocodeSwarmAgentGenerator {
 		@IInstantiationService private readonly instantiationService: IInstantiationService
 	) { }
 
+	private buildGeneratorSystemPrompt(capabilities?: INeocodeSwarmCapabilitiesConfig): string {
+		let prompt = `You are an expert AI orchestrator responsible for compiling configurations for new specialized AI Agents based on a user's prompt.
+You must output ONLY valid JSON describing the agent. Do not wrap it in markdown block quotes (like \`\`\`json). Just the raw object.
+
+The output MUST abide by this TypeScript interface structure:
+{
+	"name": string, // A short, descriptive name for the agent (max 3 words)
+	"role": "planner" | "coder" | "reviewer" | "researcher" | "debugger" | "custom",
+	"mode": "parallel" | "serial", // Default to "parallel" unless the task implies strictly serial execution
+	"soulRule": string, // A highly detailed, robust system prompt governing how the agent should behave, its constraints, and standard operating procedures. Be comprehensive.
+	"personalityIds": string[], // Array of personality IDs from the available list below that best match the agent's purpose
+	"skillIds": string[], // Array of skill IDs from the available list below that the agent should use
+	"hookIds": string[], // Array of hook IDs from the available list below relevant to this agent
+	"commandIds": string[] // Array of command IDs from the available list below relevant to this agent
+}`;
+
+		if (capabilities) {
+			if (capabilities.personalities.length > 0) {
+				prompt += '\n\n## Personalities disponíveis:\n';
+				for (const p of capabilities.personalities) {
+					prompt += `- ID: "${p.id}" | Nome: ${p.name}${p.description ? ` | Descrição: ${p.description}` : ''}\n`;
+				}
+			}
+			if (capabilities.skills.length > 0) {
+				prompt += '\n## Skills disponíveis:\n';
+				for (const s of capabilities.skills) {
+					prompt += `- ID: "${s.id}" | Nome: ${s.name}${s.description ? ` | Descrição: ${s.description}` : ''}\n`;
+				}
+			}
+			if (capabilities.hooks.length > 0) {
+				prompt += '\n## Hooks disponíveis:\n';
+				for (const h of capabilities.hooks) {
+					prompt += `- ID: "${h.id}" | Nome: ${h.name}${h.description ? ` | Descrição: ${h.description}` : ''}\n`;
+				}
+			}
+			if (capabilities.commands.length > 0) {
+				prompt += '\n## Commands disponíveis:\n';
+				for (const c of capabilities.commands) {
+					prompt += `- ID: "${c.id}" | Nome: ${c.name}${c.description ? ` | Descrição: ${c.description}` : ''}\n`;
+				}
+			}
+		}
+
+		prompt += `\n\nFor example, if the user asks for a 'frontend bug fixer', you might return:
+{
+	"name": "Frontend Debugger",
+	"role": "debugger",
+	"mode": "parallel",
+	"soulRule": "You are a specialized frontend debugger. Your primary responsibility is analyzing React, DOM, and CSS issues...",
+	"personalityIds": [],
+	"skillIds": [],
+	"hookIds": [],
+	"commandIds": []
+}`;
+
+		return prompt;
+	}
+
 	public async generateAgent(context: IAgentGenerationContext, token: CancellationToken = CancellationToken.None): Promise<Partial<INeocodeSwarmAgentConfig>> {
 		if (token.isCancellationRequested) {
 			return {};
 		}
+		const systemPrompt = this.buildGeneratorSystemPrompt(context.capabilities);
 		const headers = await this.buildHeaders(context);
 		const url = this.buildUrl(context);
-		const payload = this.buildPayload(context);
+		const payload = this.buildPayload(context, systemPrompt);
 
 		// Use background request for OpenAI to bypass CORS and handle Codex/Cloudflare issues
 		if (context.provider.type === 'openai') {
@@ -222,7 +262,7 @@ export class NeocodeSwarmAgentGenerator {
 		}
 	}
 
-	private buildPayload(context: IAgentGenerationContext): any {
+	private buildPayload(context: IAgentGenerationContext, systemPrompt: string): any {
 		const { provider, prompt } = context;
 		const model = provider.selectedModel ?? provider.models[0] ?? '';
 
@@ -235,7 +275,7 @@ export class NeocodeSwarmAgentGenerator {
 						content: [{ type: 'input_text', text: prompt }]
 					}
 				],
-				instructions: GENERATOR_SYSTEM_PROMPT,
+				instructions: systemPrompt,
 				stream: true, // Codex requires stream: true
 				store: false
 			};
@@ -248,7 +288,7 @@ export class NeocodeSwarmAgentGenerator {
 				return {
 					model,
 					messages: [
-						{ role: 'system', content: GENERATOR_SYSTEM_PROMPT },
+						{ role: 'system', content: systemPrompt },
 						{ role: 'user', content: prompt }
 					],
 					temperature: 0.2, // Low temp for structured JSON
@@ -257,7 +297,7 @@ export class NeocodeSwarmAgentGenerator {
 			case 'anthropic':
 				return {
 					model,
-					system: GENERATOR_SYSTEM_PROMPT,
+					system: systemPrompt,
 					messages: [
 						{ role: 'user', content: prompt }
 					],
@@ -267,7 +307,7 @@ export class NeocodeSwarmAgentGenerator {
 			case 'gemini':
 				return {
 					contents: [
-						{ role: 'user', parts: [{ text: `${GENERATOR_SYSTEM_PROMPT}\n\nUser Request: ${prompt}` }] }
+						{ role: 'user', parts: [{ text: `${systemPrompt}\n\nUser Request: ${prompt}` }] }
 					],
 					generationConfig: {
 						temperature: 0.2,
@@ -390,7 +430,11 @@ export class NeocodeSwarmAgentGenerator {
 				name: parsed.name,
 				role: parsed.role,
 				mode: parsed.mode,
-				soulRule: parsed.soulRule
+				soulRule: parsed.soulRule,
+				personalityIds: Array.isArray(parsed.personalityIds) ? parsed.personalityIds : [],
+				skillIds: Array.isArray(parsed.skillIds) ? parsed.skillIds : [],
+				hookIds: Array.isArray(parsed.hookIds) ? parsed.hookIds : [],
+				commandIds: Array.isArray(parsed.commandIds) ? parsed.commandIds : []
 			};
 		} catch (e) {
 			throw new Error('Failed to parse model response into valid agent JSON format. Response was: ' + content);

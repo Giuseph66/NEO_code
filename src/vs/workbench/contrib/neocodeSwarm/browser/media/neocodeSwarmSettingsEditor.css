@@ -9,7 +9,8 @@
 	height: 100%;
 	background-color: var(--vscode-editor-background);
 	color: var(--vscode-editor-foreground);
-	padding: 24px;
+	padding: 16px;
+	/* Reduced from 24px */
 	overflow: hidden;
 }
 
@@ -96,19 +97,24 @@
 .neocode-swarm-content {
 	flex: 1;
 	overflow-y: auto;
-	padding-right: 12px;
+	padding-right: 8px;
+	/* Reduced from 12px */
 }
 
-/* Scrollbar styling */
-.neocode-swarm-content::-webkit-scrollbar {
-	width: 10px;
+/* Custom modern scrollbar */
+.neocode-swarm-content::-webkit-scrollbar,
+.neocode-caps-items::-webkit-scrollbar {
+	width: 6px;
 }
 
-.neocode-swarm-content::-webkit-scrollbar-thumb {
+.neocode-swarm-content::-webkit-scrollbar-thumb,
+.neocode-caps-items::-webkit-scrollbar-thumb {
 	background: var(--vscode-scrollbarSlider-background);
+	border-radius: 10px;
 }
 
-.neocode-swarm-content::-webkit-scrollbar-thumb:hover {
+.neocode-swarm-content::-webkit-scrollbar-thumb:hover,
+.neocode-caps-items::-webkit-scrollbar-thumb:hover {
 	background: var(--vscode-scrollbarSlider-hoverBackground);
 }
 
@@ -180,9 +186,12 @@
 	background: var(--vscode-input-background);
 	color: var(--vscode-input-foreground);
 	border: 1px solid var(--vscode-input-border, transparent);
-	padding: 6px 10px;
+	padding: 4px 8px;
+	/* Reduced padding */
 	border-radius: 4px;
 	font-family: inherit;
+	box-sizing: border-box;
+	/* Ensure padding doesn't cause overflow */
 }
 
 .neocode-input:focus,
@@ -272,13 +281,22 @@
 }
 
 .neocode-agent-card {
-	padding: 20px;
+	padding: 12px 16px;
+	/* Reduced padding */
 	border: 1px solid var(--vscode-widget-border, #454545);
 	border-radius: 8px;
-	margin-bottom: 24px;
+	margin-bottom: 16px;
+	/* Reduced margin */
 	background: var(--vscode-editor-background);
 	display: flex;
 	flex-direction: column;
+	gap: 12px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+	transition: all 0.2s ease;
+}
+
+.neocode-agent-card.expanded {
+	padding: 16px;
 	gap: 20px;
 	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
@@ -287,6 +305,11 @@
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
+	padding-bottom: 4px;
+	cursor: pointer;
+}
+
+.neocode-agent-card.expanded .neocode-agent-card-header {
 	padding-bottom: 12px;
 	border-bottom: 1px solid var(--vscode-widget-border, #454545);
 }
@@ -328,9 +351,14 @@
 }
 
 .neocode-agent-card-content {
+	display: none;
+	grid-template-columns: 280px 1fr;
+	/* Adjusted for better proportion */
+	gap: 20px;
+}
+
+.neocode-agent-card.expanded .neocode-agent-card-content {
 	display: grid;
-	grid-template-columns: 1fr 1.5fr;
-	gap: 24px;
 }
 
 .neocode-agent-params {
@@ -619,4 +647,130 @@
 	font-size: 12px;
 	text-transform: uppercase;
 	color: var(--vscode-descriptionForeground);
+}
+
+/* Agent capability groups */
+.neocode-agent-caps-section {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.neocode-caps-group {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	border: 1px solid var(--vscode-widget-border, #454545);
+	border-radius: 6px;
+	padding: 8px 12px;
+	background: var(--vscode-editor-inactiveSelectionBackground, rgba(128, 128, 128, 0.05));
+}
+
+.neocode-caps-group-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	cursor: pointer;
+}
+
+.neocode-caps-group-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.neocode-caps-group-label {
+	font-size: 11px;
+	font-weight: 700;
+	text-transform: uppercase;
+	color: var(--vscode-descriptionForeground);
+	letter-spacing: 0.5px;
+}
+
+.neocode-caps-group-actions {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+.neocode-caps-search-container {
+	margin-bottom: 8px;
+	width: 100%;
+	display: none;
+}
+
+.neocode-caps-group.expanded .neocode-caps-search-container {
+	display: flex;
+}
+
+.neocode-caps-items {
+	display: none;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 200px;
+	overflow-y: auto;
+	padding-right: 4px;
+}
+
+.neocode-caps-group.expanded .neocode-caps-items {
+	display: flex;
+}
+
+.neocode-caps-item {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	font-size: 12px;
+	padding: 4px 8px;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background 0.1s;
+}
+
+.neocode-caps-item:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.neocode-caps-item input[type="checkbox"] {
+	width: 14px;
+	height: 14px;
+	flex-shrink: 0;
+	margin-top: 2px;
+	cursor: pointer;
+}
+
+.neocode-caps-item-text {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.neocode-caps-item-name {
+	font-weight: 600;
+}
+
+.neocode-caps-item-description {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neocode-caps-empty {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	font-style: italic;
+	padding: 8px;
+	text-align: center;
+}
+
+.neocode-agent-soul-override {
+	margin-top: 12px;
+	border-top: 1px solid var(--vscode-widget-border, #454545);
+	padding-top: 12px;
+}
+
+.neocode-textarea-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 8px;
 }
