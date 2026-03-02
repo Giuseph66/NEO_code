@@ -1550,9 +1550,16 @@ export class SetupAgent extends Disposable implements IChatAgentImplementation {
 			content: new MarkdownString(localize('swarmAnthropicCliInvoking', "NeoCode Swarm: Orchestrating via Claude CLI ({0})...", model))
 		});
 
+		// Only pass --model if the model ID looks like a real Anthropic model (e.g. claude-*).
+		// Internal model IDs like 'cloud-code-default' cause the CLI to reject the request.
+		const cliArgs = ['-p', '--output-format', 'json', '--tools', ''];
+		if (model && /^claude-/i.test(model)) {
+			cliArgs.splice(1, 0, '--model', model);
+		}
+
 		const result = await this.runSwarmCliExec(
 			cliPath,
-			['-p', '--model', model, '--output-format', 'json', '--tools', ''],
+			cliArgs,
 			180_000,
 			prompt
 		);

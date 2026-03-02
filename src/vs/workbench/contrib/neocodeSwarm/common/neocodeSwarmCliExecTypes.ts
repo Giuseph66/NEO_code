@@ -11,6 +11,8 @@ export interface INeocodeSwarmCliExecOptions {
 	cwd?: string;
 	timeoutMs?: number;
 	stdin?: string;
+	/** Extra environment variables to inject into the subprocess. Merged on top of the enriched process env. */
+	env?: Record<string, string>;
 }
 
 export interface INeocodeSwarmCliExecResult {

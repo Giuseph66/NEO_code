@@ -288,7 +288,10 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 						this.logService.info('[neocode qwen auth] Token expired or expiring soon, attempting refresh...');
 						const controller = new QwenOAuthDeviceFlowController(this.instantiationService, this.fileService, this.openerService, this.pathService);
 						try {
-							const result = await controller.refreshAccessToken(creds.refresh_token);
+							// Pass the existing resource_url so it is preserved when the
+							// refresh response does not include one (preventing 401 errors
+							// caused by falling back to the wrong DashScope endpoint).
+							const result = await controller.refreshAccessToken(creds.refresh_token, creds.resource_url);
 
 							if (result.ok && result.credentials) {
 									creds = result.credentials;

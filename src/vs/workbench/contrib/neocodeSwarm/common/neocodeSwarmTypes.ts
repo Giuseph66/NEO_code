@@ -246,6 +246,50 @@ function createDefaultCapabilitiesConfig(): INeocodeSwarmCapabilitiesConfig {
 	};
 }
 
+// ── Swarm Orchestration Types ─────────────────────────────────────────────
+
+export interface ISwarmAgentPlan {
+	id: string;
+	name: string;
+	emoji: string;
+	role: string;
+	task: string;
+}
+
+export interface ISwarmExecutionPlan {
+	complexity: 'simple' | 'moderate' | 'complex';
+	reasoning: string;
+	directAnswer?: string;
+	agents: ISwarmAgentPlan[];
+	needsTimeBudget: boolean;
+}
+
+export type SwarmAgentStatus = 'pending' | 'thinking' | 'working' | 'done' | 'error';
+
+export interface ISwarmAgentLogEntry {
+	type: 'thinking' | 'tool' | 'message' | 'error';
+	content: string;
+	timestamp: number;
+}
+
+export interface ISwarmAgentState {
+	plan: ISwarmAgentPlan;
+	status: SwarmAgentStatus;
+	logs: ISwarmAgentLogEntry[];
+	result?: string;
+	error?: string;
+}
+
+export interface ISwarmActivitySession {
+	sessionId: string;
+	plan: ISwarmExecutionPlan;
+	agentStates: Map<string, ISwarmAgentState>;
+	orchestratorStatus: string;
+	startTime: number;
+	endTime?: number;
+	complete: boolean;
+}
+
 export function sanitizeNeocodeSwarmForExport(config: INeocodeSwarmConfig): INeocodeSwarmConfig {
 	const clone: INeocodeSwarmConfig = {
 		...config,

@@ -105,7 +105,7 @@ export class QwenRuntimeAdapter extends Disposable {
 				} else if (config.protocol === 'gemini' || config.protocol === 'vertex-ai') {
 					yield* this.runWithToolsGemini(config, apiKey, options, options.toolExecutor, abortController);
 				} else {
-					yield* this.runWithToolsOpenAI(config, apiKey, options, options.toolExecutor, abortController);
+					yield* this.runWithToolsOpenAI(config, envData.env, apiKey, options, options.toolExecutor, abortController);
 				}
 			} else {
 				// Simple single-turn streaming (legacy path)
@@ -202,15 +202,18 @@ export class QwenRuntimeAdapter extends Disposable {
 	 * OpenAI-compatible multi-turn tool-calling loop.
 	 * Sends non-streaming requests, executes tool calls, and repeats until
 	 * the model returns a final text response.
+	 * For qwen-oauth, routes every round through the utility-process worker's
+	 * post() method to bypass the browser CORS sandbox.
 	 */
 	private async *runWithToolsOpenAI(
 		config: IQwenProviderConfig,
+		envData: Record<string, string>,
 		apiKey: string,
 		options: IQwenSdkTaskOptions,
 		toolExecutor: INeocodeToolExecutor,
 		abortController: AbortController
 	): AsyncGenerator<IQwenStreamChunk, void, unknown> {
-		const baseUrl = this.resolveBaseUrl(config);
+		const baseUrl = this.resolveBaseUrl(config, envData);
 		const endpoint = `${baseUrl}/chat/completions`;
 		const modelId = this.resolveModelId(config);
 		const tools = this.formatToolsForOpenAI(toolExecutor.getTools());
@@ -222,84 +225,107 @@ export class QwenRuntimeAdapter extends Disposable {
 			{ role: 'user', content: options.prompt }
 		];
 
-		for (let round = 0; round < maxRounds; round++) {
-			const response = await fetch(endpoint, {
-				method: 'POST',
-				headers: {
-					'Authorization': `Bearer ${apiKey}`,
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify({
+		// For qwen-oauth, start a single worker and reuse it for all rounds.
+		let workerData: { worker: IUtilityProcessWorkerHandle; service: IQwenOAuthWorkerService } | undefined;
+		if (config.authType === 'qwen-oauth') {
+			workerData = await this.startWorker();
+		}
+
+		try {
+			for (let round = 0; round < maxRounds; round++) {
+				const body = JSON.stringify({
 					model: modelId,
 					messages,
 					tools,
 					tool_choice: 'auto',
 					stream: false,
-				}),
-				signal: abortController.signal,
-			});
+				});
+				const headers: Record<string, string> = {
+					'Authorization': `Bearer ${apiKey}`,
+					'Content-Type': 'application/json',
+				};
 
-			if (!response.ok) {
-				const detail = await response.text().catch(() => '');
-				throw new Error(`HTTP ${response.status}: ${detail}`);
-			}
-
-			const data = await response.json() as {
-				choices?: Array<{
-					message?: {
-						role?: string;
-						content?: string | null;
-						tool_calls?: Array<{
-							id: string;
-							type: string;
-							function: { name: string; arguments: string };
-						}>;
-					};
-					finish_reason?: string;
-				}>;
-			};
-
-			const choice = data.choices?.[0];
-			const message = choice?.message;
-			if (!message) {
-				throw new Error('Empty response from API');
-			}
-
-			// Add the assistant's message to the conversation
-			messages.push({ role: 'assistant', content: message.content ?? null, tool_calls: message.tool_calls });
-
-			if (choice.finish_reason === 'tool_calls' && message.tool_calls?.length) {
-				for (const toolCall of message.tool_calls) {
-					yield { type: 'tool_call', toolName: toolCall.function.name };
-
-					let args: Record<string, unknown>;
-					try {
-						args = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
-					} catch {
-						args = {};
+				let responseJson: string;
+				if (workerData) {
+					// qwen-oauth: route through utility-process worker to bypass CORS
+					const workerResult = await workerData.service.post({ url: endpoint, body, headers });
+					if (workerResult.statusCode < 200 || workerResult.statusCode >= 300) {
+						throw new Error(`HTTP ${workerResult.statusCode}: ${workerResult.body}`);
 					}
-
-					const result = await toolExecutor.execute({
-						id: toolCall.id,
-						name: toolCall.function.name,
-						arguments: args,
+					responseJson = workerResult.body;
+				} else {
+					const response = await fetch(endpoint, {
+						method: 'POST',
+						headers,
+						body,
+						signal: abortController.signal,
 					});
+					if (!response.ok) {
+						const detail = await response.text().catch(() => '');
+						throw new Error(`HTTP ${response.status}: ${detail}`);
+					}
+					responseJson = await response.text();
+				}
 
-					messages.push({
-						role: 'tool',
-						tool_call_id: toolCall.id,
-						content: result.content,
-					});
+				const data = JSON.parse(responseJson) as {
+					choices?: Array<{
+						message?: {
+							role?: string;
+							content?: string | null;
+							tool_calls?: Array<{
+								id: string;
+								type: string;
+								function: { name: string; arguments: string };
+							}>;
+						};
+						finish_reason?: string;
+					}>;
+				};
+
+				const choice = data.choices?.[0];
+				const message = choice?.message;
+				if (!message) {
+					throw new Error('Empty response from API');
 				}
-			} else {
-				// Final text response
-				const content = message.content;
-				if (content) {
-					yield { type: 'content', value: content };
+
+				// Add the assistant's message to the conversation
+				messages.push({ role: 'assistant', content: message.content ?? null, tool_calls: message.tool_calls });
+
+				if (choice.finish_reason === 'tool_calls' && message.tool_calls?.length) {
+					for (const toolCall of message.tool_calls) {
+						yield { type: 'tool_call', toolName: toolCall.function.name };
+
+						let args: Record<string, unknown>;
+						try {
+							args = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
+						} catch {
+							args = {};
+						}
+
+						const result = await toolExecutor.execute({
+							id: toolCall.id,
+							name: toolCall.function.name,
+							arguments: args,
+						});
+
+						messages.push({
+							role: 'tool',
+							tool_call_id: toolCall.id,
+							content: result.content,
+						});
+					}
+				} else {
+					// Final text response
+					const content = message.content;
+					if (content) {
+						yield { type: 'content', value: content };
+					}
+					yield { type: 'done' };
+					return;
 				}
-				yield { type: 'done' };
-				return;
 			}
+		} finally {
+			workerData?.worker.dispose();
 		}
 
 		yield { type: 'content', value: '_Limite de iterações de ferramentas atingido._' };
@@ -418,8 +444,7 @@ export class QwenRuntimeAdapter extends Disposable {
 		abortController: AbortController
 	): AsyncGenerator<IQwenStreamChunk, void, unknown> {
 		const baseUrl = this.resolveBaseUrl(config);
-		const model = encodeURIComponent(config.modelId);
-		const endpoint = `${baseUrl}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+		const { endpoint, headers: geminiHeaders } = this.buildGeminiAuth(baseUrl, config.modelId, 'generateContent', apiKey);
 		const tools = this.formatToolsForGemini(toolExecutor.getTools());
 		const systemInstruction = options.systemPrompt
 			? { parts: [{ text: options.systemPrompt }] }
@@ -438,7 +463,7 @@ export class QwenRuntimeAdapter extends Disposable {
 
 			const response = await fetch(endpoint, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: geminiHeaders,
 				body: JSON.stringify(body),
 				signal: abortController.signal,
 			});
@@ -591,9 +616,11 @@ export class QwenRuntimeAdapter extends Disposable {
 		const modelId = this.resolveModelId(config);
 		this.logService.info(`[neocode qwen] request endpoint=${endpoint} authType=${config.authType}`);
 
-		const systemMessage = options.permissionMode === 'plan'
-			? 'Voce e um assistente de codigo. Analise e planeje, mas nao escreva codigo diretamente.'
-			: 'Voce e um assistente de codigo inteligente e eficiente.';
+		const systemMessage = options.systemPrompt?.trim()
+			? options.systemPrompt
+			: options.permissionMode === 'plan'
+				? 'Voce e um assistente de codigo. Analise e planeje, mas nao escreva codigo diretamente.'
+				: 'Voce e um assistente de codigo inteligente e eficiente.';
 
 		const response = await fetch(endpoint, {
 			method: 'POST',
@@ -633,9 +660,11 @@ export class QwenRuntimeAdapter extends Disposable {
 		this.logService.info(`[neocode qwen] worker stream endpoint=${endpoint}`);
 
 		const workerData = await this.startWorker();
-		const systemMessage = options.permissionMode === 'plan'
-			? 'Voce e um assistente de codigo. Analise e planeje, mas nao escreva codigo diretamente.'
-			: 'Voce e um assistente de codigo inteligente e eficiente.';
+		const systemMessage = options.systemPrompt?.trim()
+			? options.systemPrompt
+			: options.permissionMode === 'plan'
+				? 'Voce e um assistente de codigo. Analise e planeje, mas nao escreva codigo diretamente.'
+				: 'Voce e um assistente de codigo inteligente e eficiente.';
 
 		const eventStream = workerData.service.onDynamicStream({
 			url: endpoint,
@@ -790,6 +819,46 @@ export class QwenRuntimeAdapter extends Disposable {
 		this.logService.debug(`[neocode qwen] Connection test succeeded: ${text?.slice(0, 60)}`);
 	}
 
+	// ─── Gemini auth helpers ────────────────────────────────────────────
+
+	/**
+	 * Returns true when the credential is a Google OAuth2 access token.
+	 * OAuth2 tokens start with 'ya29.' whereas AI Studio API keys start with 'AIza'.
+	 */
+	private isGeminiOAuthToken(apiKey: string): boolean {
+		return apiKey.startsWith('ya29.');
+	}
+
+	/**
+	 * Builds the Gemini endpoint URL and request headers, selecting between
+	 * API key (query-string) and OAuth Bearer (Authorization header) authentication.
+	 */
+	private buildGeminiAuth(
+		baseUrl: string,
+		model: string,
+		action: string,
+		apiKey: string,
+		extraParams?: Record<string, string>,
+	): { endpoint: string; headers: Record<string, string> } {
+		const encodedModel = encodeURIComponent(model);
+		const baseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+
+		if (this.isGeminiOAuthToken(apiKey)) {
+			const params = new URLSearchParams(extraParams ?? {});
+			const queryStr = params.toString() ? `?${params}` : '';
+			return {
+				endpoint: `${baseUrl}/models/${encodedModel}:${action}${queryStr}`,
+				headers: { ...baseHeaders, 'Authorization': `Bearer ${apiKey}` },
+			};
+		}
+
+		const params = new URLSearchParams({ key: apiKey, ...extraParams });
+		return {
+			endpoint: `${baseUrl}/models/${encodedModel}:${action}?${params}`,
+			headers: baseHeaders,
+		};
+	}
+
 	// ─── Gemini REST streaming ──────────────────────────────────────────
 
 	private async *streamGemini(
@@ -799,15 +868,19 @@ export class QwenRuntimeAdapter extends Disposable {
 		abortController: AbortController
 	): AsyncGenerator<IQwenStreamChunk, void, unknown> {
 		const baseUrl = this.resolveBaseUrl(config);
-		const model = encodeURIComponent(config.modelId);
-		const endpoint = `${baseUrl}/models/${model}:streamGenerateContent?key=${encodeURIComponent(apiKey)}&alt=sse`;
+		const { endpoint, headers } = this.buildGeminiAuth(baseUrl, config.modelId, 'streamGenerateContent', apiKey, { alt: 'sse' });
+
+		const requestBody: Record<string, unknown> = {
+			contents: [{ parts: [{ text: options.prompt }] }],
+		};
+		if (options.systemPrompt?.trim()) {
+			requestBody['systemInstruction'] = { parts: [{ text: options.systemPrompt }] };
+		}
 
 		const response = await fetch(endpoint, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				contents: [{ parts: [{ text: options.prompt }] }]
-			}),
+			headers,
+			body: JSON.stringify(requestBody),
 			signal: abortController.signal,
 		});
 
@@ -821,12 +894,11 @@ export class QwenRuntimeAdapter extends Disposable {
 
 	private async testGeminiConnection(config: IQwenProviderConfig, apiKey: string, abortController: AbortController): Promise<void> {
 		const baseUrl = this.resolveBaseUrl(config);
-		const model = encodeURIComponent(config.modelId);
-		const endpoint = `${baseUrl}/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+		const { endpoint, headers } = this.buildGeminiAuth(baseUrl, config.modelId, 'generateContent', apiKey);
 
 		const response = await fetch(endpoint, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers,
 			body: JSON.stringify({
 				contents: [{ parts: [{ text: 'Responda apenas com: ok' }] }]
 			}),
@@ -863,6 +935,7 @@ export class QwenRuntimeAdapter extends Disposable {
 				model: config.modelId,
 				max_tokens: 8192,
 				stream: true,
+				...(options.systemPrompt?.trim() ? { system: options.systemPrompt } : {}),
 				messages: [{ role: 'user', content: options.prompt }]
 			}),
 			signal: abortController.signal,

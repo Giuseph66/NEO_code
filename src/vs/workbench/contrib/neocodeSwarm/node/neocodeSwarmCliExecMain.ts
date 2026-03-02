@@ -28,9 +28,33 @@ class NeocodeSwarmCliExecService extends Disposable implements INeocodeSwarmCliE
 			let timedOut = false;
 			let resolved = false;
 
+			// Enrich PATH so npm-global and user-local binaries (e.g. 'claude') are found
+			// inside the Electron utility process, which often has a stripped environment.
+			const home = process.env['HOME'] ?? '';
+			const pathParts = [
+				process.env['PATH'] ?? '',
+				'/usr/local/bin',
+				'/usr/bin',
+				'/bin',
+				home ? `${home}/.local/bin` : '',
+				home ? `${home}/bin` : '',
+				home ? `${home}/.npm-global/bin` : '',
+				home ? `${home}/.npm/bin` : '',
+				'/opt/homebrew/bin',
+				'/snap/bin',
+			].filter(p => p.trim() !== '');
+			const enrichedEnv: Record<string, string | undefined> = {
+				...process.env,
+				PATH: pathParts.join(':'),
+				TERM: 'dumb',
+				NO_COLOR: '1',
+				// Caller-supplied env vars override everything above (e.g. OPENAI_API_KEY for codex exec).
+				...(options.env ?? {}),
+			};
+
 			const child = spawn(options.command, options.args, {
 				cwd: options.cwd || process.cwd(),
-				env: process.env,
+				env: enrichedEnv,
 				stdio: ['pipe', 'pipe', 'pipe'],
 			});
 

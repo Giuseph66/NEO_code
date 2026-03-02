@@ -242,7 +242,13 @@ export class QwenOAuthDeviceFlowController extends Disposable {
 		}
 	}
 
-	async refreshAccessToken(refreshToken: string): Promise<IQwenDeviceFlowResult> {
+	/**
+	 * @param refreshToken The refresh token to exchange for a new access token.
+	 * @param preservedResourceUrl The resource_url from the existing credentials,
+	 *   used as a fallback when the refresh response does not include one.
+	 *   This prevents the resource endpoint from being lost across token refreshes.
+	 */
+	async refreshAccessToken(refreshToken: string, preservedResourceUrl?: string): Promise<IQwenDeviceFlowResult> {
 		const cancelSource = new CancellationTokenSource();
 		this._cancelSource = cancelSource;
 		let worker: IUtilityProcessWorkerHandle | undefined;
@@ -282,7 +288,9 @@ export class QwenOAuthDeviceFlowController extends Disposable {
 						access_token: tokenData.access_token,
 						refresh_token: tokenData.refresh_token ?? refreshToken,
 						token_type: tokenData.token_type,
-						resource_url: tokenData.resource_url,
+						// Preserve the existing resource_url when the refresh response doesn't include one,
+						// so the correct OAuth resource endpoint is not lost across token refreshes.
+						resource_url: tokenData.resource_url ?? preservedResourceUrl,
 						expiry_date: tokenData.expires_in ? Date.now() + tokenData.expires_in * 1000 : undefined,
 					};
 
