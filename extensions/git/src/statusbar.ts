@@ -49,13 +49,13 @@ class CheckoutStatusBar {
 
 		const rebasing = !!this.repository.rebaseCommit;
 		const label = operationData[0]?.refLabel ?? `${this.repository.headLabel}${rebasing ? ` (${l10n.t('Rebasing')})` : ''}`;
-		const command = (this.state.isCheckoutRunning || this.state.isCommitRunning || this.state.isSyncRunning) ? '' : 'git.checkout';
+		const command = (this.state.isCheckoutRunning || this.state.isCommitRunning || this.state.isSyncRunning) ? '' : 'neocode.branchManager';
 
 		return {
 			command,
 			tooltip: `${label}, ${this.getTooltip()}`,
 			title: `${this.getIcon()} ${label}`,
-			arguments: [this.repository.sourceControl]
+			arguments: [this.repository.root]
 		};
 	}
 

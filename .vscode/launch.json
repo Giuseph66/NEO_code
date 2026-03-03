@@ -680,6 +680,20 @@
 				"group": "monaco",
 				"order": 4
 			}
+		},
+		{
+			"name": "watch-client-transpile",
+			"type": "node",
+			"request": "launch",
+			"runtimeExecutable": "npm",
+			"runtimeArgs": [
+				"run",
+				"watch-client-transpile"
+			],
+			"cwd": "${workspaceFolder}",
+			"presentation": {
+				"hidden": true
+			}
 		}
 	],
 	"compounds": [
@@ -691,6 +705,7 @@
 				"Attach to Main Process",
 				"Attach to Extension Host",
 				"Attach to Shared Process",
+				"watch-client-transpile"
 			],
 			"preLaunchTask": "Ensure Prelaunch Dependencies",
 			"presentation": {

@@ -1,0 +1,125 @@
+.neo-voice-inline-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: 0 0 10px 0;
+	padding: 10px;
+	border: 1px solid var(--vscode-widget-border, #454545);
+	border-radius: 10px;
+	background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+}
+
+.neo-voice-inline-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.neo-voice-inline-title-block {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.neo-voice-inline-title {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.neo-voice-inline-subtitle {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neo-voice-inline-close {
+	border: none;
+	background: transparent;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+	font-size: 18px;
+	line-height: 16px;
+	padding: 0 4px;
+}
+
+.neo-voice-inline-close:hover {
+	color: var(--vscode-foreground);
+}
+
+.neo-voice-inline-body {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.neo-voice-inline-status {
+	font-size: 12px;
+	color: var(--vscode-foreground);
+}
+
+.neo-voice-inline-timer {
+	font-size: 20px;
+	font-weight: 700;
+	letter-spacing: 0.5px;
+}
+
+.neo-voice-inline-hint {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.neo-voice-inline-audio-preview {
+	width: 100%;
+}
+
+.neo-voice-inline-transcription {
+	width: 100%;
+	min-height: 90px;
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 6px;
+	padding: 8px;
+	resize: vertical;
+	font-family: inherit;
+}
+
+.neo-voice-inline-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.neo-voice-inline-btn {
+	border: 1px solid var(--vscode-button-border, transparent);
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	border-radius: 6px;
+	padding: 4px 10px;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.neo-voice-inline-btn:hover:not(:disabled) {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.neo-voice-inline-btn.primary {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.neo-voice-inline-btn.primary:hover:not(:disabled) {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.neo-voice-inline-btn.danger {
+	background: transparent;
+	color: var(--vscode-errorForeground, #f48771);
+	border-color: var(--vscode-errorForeground, #f48771);
+}
+
+.neo-voice-inline-btn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}

@@ -44,7 +44,7 @@ import {
 import { NeocodeSwarmSecretService } from './neocodeSwarmSecretService.js';
 import { NeocodeSwarmStorageService } from './neocodeSwarmStorageService.js';
 import { NeocodeSwarmAgentGenerator } from './neocodeSwarmAgentGenerator.js';
-import { IQwenAuthService } from '../../neocode/qwen/common/qwenTypes.js';
+import { IQwenAuthService, NEO_QWEN_COMMAND_OPEN_SETTINGS } from '../../neocode/qwen/common/qwenTypes.js';
 import { IGeminiAuthService, NEO_GEMINI_COMMAND_OPEN_SETTINGS } from '../../neocode/gemini/common/geminiTypes.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { INeocodeSwarmCliExecOptions, INeocodeSwarmCliExecResult, INeocodeSwarmCliExecService, NEO_SWARM_CLI_EXEC_CHANNEL } from '../common/neocodeSwarmCliExecTypes.js';
@@ -403,18 +403,14 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 		for (const model of filteredModels) {
 			const card = DOM.append(listColumn, DOM.$('.neocode-provider-card'));
 			if (model.id === this.selectedProviderId) card.classList.add('selected');
+			if (!model.enabled) card.classList.add('disabled');
 
 			const title = DOM.append(card, DOM.$('.neocode-provider-card-title'));
 			const iconClass = this.getProviderStatusIcon(model.id, model.status ?? 'notConfigured');
 			DOM.append(title, DOM.$(`span.codicon.${iconClass} `));
 			DOM.append(title, DOM.$('span', undefined, model.name));
-			const enabledToggle = DOM.append(title, DOM.$('input', { type: 'checkbox' })) as HTMLInputElement;
-			enabledToggle.checked = model.enabled;
-			this.tabDisposables.add(DOM.addDisposableListener(enabledToggle, DOM.EventType.CHANGE, e => {
-				e.stopPropagation();
-				model.enabled = enabledToggle.checked;
-				this.saveConfig(undefined, true);
-			}));
+			const enabledToggle = this.createProviderEnabledToggle(model, true);
+			DOM.append(title, enabledToggle);
 
 			DOM.append(card, DOM.$('.neocode-provider-card-subtitle', undefined, `${this.formatProviderType(model.type)} · ${this.formatAuthMethod(model.authMethod)} `));
 			const actions = DOM.append(card, DOM.$('.neocode-provider-card-actions'));
@@ -441,6 +437,10 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 
 	private renderModelEditor(container: HTMLElement, model: INeocodeSwarmProviderConfig): void {
 		DOM.append(container, DOM.$('h3', undefined, model.name));
+		const providerControls = DOM.append(container, DOM.$('.neocode-provider-editor-controls'));
+		DOM.append(providerControls, DOM.$('span.neocode-provider-editor-status-label', undefined, localize('neoSwarm.providerState', "Estado do provedor")));
+		DOM.append(providerControls, this.createProviderEnabledToggle(model));
+
 		const form = DOM.append(container, DOM.$('.neocode-form-grid'));
 		this.appendLabeledInput(form, localize('neoSwarm.modelName', "Nome da familia"), model.name, value => model.name = value);
 		this.appendSelect(form, localize('neoSwarm.modelType', "Familia"), model.type, [
@@ -651,29 +651,17 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 		const statusIcon = isBusy ? '⏳' : (lastStatus === 'connected' ? '✅' : lastStatus === 'error' ? '❌' : '⚪');
 		DOM.append(container, DOM.$('.neocode-note', undefined, localize(
 			'neoSwarm.qwenOAuthNote',
-			"Qwen OAuth usa o fluxo integrado. Clicando em Iniciar, uma aba no navegador será aberta para autorização. Suas credenciais serão mantidas localmente em ~/.qwen/."
+			"Qwen Code usa autenticacao dedicada. Abra o painel de configuracao do Qwen para gerenciar login/credenciais e use Testar Configuracoes para validar rapidamente neste painel."
 		)));
 		DOM.append(container, DOM.$('.neocode-inline-status', undefined, `${statusIcon} ${lastMessage} `));
 
-		// Actions
+		// Minimal actions: open dedicated settings + quick test
 		const actions = DOM.append(container, DOM.$('.neocode-actions-row'));
-
-		// Start OAuth flow button — natively executed
-		const oauthButton = this.appendButton(actions, localize('neoSwarm.qwenStartOAuthNative', "Iniciar Login Nativo"), async () => {
-			this.updateStatus(localize('neoSwarm.qwenOAuthStartingNative', "Iniciando fluxo OAuth integrado..."));
-			const result = await this.qwenAuthService.startNativeOAuthFlow((msg: string) => {
-				this.updateStatus(msg);
-			});
-			model.status = result.ok ? 'connected' : 'error';
-			model.statusMessage = result.message;
-			this.saveConfig(undefined, true);
-			this.renderActiveTab();
-			this.updateStatus(result.message, !result.ok);
+		const openSettingsBtn = this.appendButton(actions, localize('neoSwarm.openQwenSettings', "Configurar Qwen Code..."), () => {
+			void this.commandService.executeCommand(NEO_QWEN_COMMAND_OPEN_SETTINGS);
 		});
-		oauthButton.classList.add('primary');
-
-		// Test connection button
-		this.appendButton(actions, localize('neoSwarm.qwenTestConnection', "Testar Conexao"), async () => {
+		openSettingsBtn.classList.add('primary');
+		this.appendButton(actions, localize('neoSwarm.qwenTestConfig', "Testar Configuracoes"), async () => {
 			this.updateStatus(localize('neoSwarm.qwenTesting', "Testando conexao com Qwen..."));
 			const result = await this.qwenAuthService.testApiKeyConnection();
 			model.status = result.ok ? 'connected' : 'error';
@@ -681,47 +669,6 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 			this.saveConfig(undefined, true);
 			this.renderActiveTab();
 			this.updateStatus(result.message, !result.ok);
-		});
-
-		// Diagnostics button
-		this.appendButton(actions, localize('neoSwarm.qwenDiagnostics', "Diagnostico"), async () => {
-			const diag = await this.qwenAuthService.getDiagnostics();
-			const lines: string[] = [
-				`Auth: ${diag.authType} `,
-				`Protocol: ${diag.protocol} `,
-				`Model: ${diag.modelId} `,
-				`CLI: ${diag.cliDetected ? `${diag.cliPath} (${diag.cliVersion ?? '?'})` : 'nao encontrado'} `,
-				`Broken Auth State: ${diag.hasBrokenAuthState ? 'SIM' : 'nao'} `,
-			];
-			if (diag.issues.length > 0) {
-				lines.push('', '--- Problemas ---', ...diag.issues);
-			}
-			if (diag.suggestions.length > 0) {
-				lines.push('', '--- Sugestoes ---', ...diag.suggestions);
-			}
-			await this.dialogService.info(
-				localize('neoSwarm.qwenDiagTitle', "Diagnostico Qwen Code"),
-				lines.join('\n')
-			);
-		});
-
-		// Reset broken auth state
-		const resetRow = DOM.append(container, DOM.$('.neocode-actions-row'));
-		this.appendButton(resetRow, localize('neoSwarm.qwenResetAuth', "Resetar estado de auth"), async () => {
-			await this.qwenAuthService.resetBrokenAuthState();
-			model.status = 'notConfigured';
-			model.statusMessage = localize('neoSwarm.qwenAuthReset', "Estado de autenticacao resetado.");
-			this.saveConfig(undefined, true);
-			this.renderActiveTab();
-			this.updateStatus(localize('neoSwarm.qwenAuthReset', "Estado de autenticacao resetado."));
-		});
-		this.appendButton(resetRow, localize('neoSwarm.qwenClearCredentials', "Limpar credenciais"), async () => {
-			await this.qwenAuthService.clearAllQwenCredentials();
-			model.status = 'notConfigured';
-			model.statusMessage = localize('neoSwarm.qwenCredentialsCleared', "Credenciais Qwen removidas.");
-			this.saveConfig(undefined, true);
-			this.renderActiveTab();
-			this.updateStatus(localize('neoSwarm.qwenCredentialsCleared', "Credenciais Qwen removidas."));
 		});
 	}
 
@@ -856,7 +803,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 		this.appendToggle(form, localize('neoSwarm.enableSwarm', "Ativar enxame"), this.config.swarmEnabled, value => this.config.swarmEnabled = value);
 		this.appendSelect(form, localize('neoSwarm.orchestratorProvider', "Provedor do orquestrador"), this.config.orchestrator.providerId ?? '', this.enabledModelOptions(), value => {
 			this.config.orchestrator.providerId = value || undefined;
-			const provider = this.config.providers.find(p => p.id === value);
+			const provider = this.config.providers.find(p => p.id === value && p.enabled);
 			this.config.orchestrator.model = provider?.selectedModel ?? provider?.models[0] ?? undefined;
 			this.renderActiveTab();
 		});
@@ -902,9 +849,9 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 			const prompt = generateInput.value.trim();
 			if (!prompt) return;
 
-			const provider = this.config.providers.find(p => p.id === this.config.orchestrator.providerId);
+			const provider = this.config.providers.find(p => p.id === this.config.orchestrator.providerId && p.enabled);
 			if (!provider) {
-				this.notificationService.error(localize('neoSwarm.noOrchestrator', "Nenhum provedor de orquestração selecionado na aba Orquestração."));
+				this.notificationService.error(localize('neoSwarm.noOrchestrator', "Nenhum provedor de orquestração ativo selecionado na aba Orquestração."));
 				return;
 			}
 
@@ -1611,6 +1558,64 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 		return row;
 	}
 
+	private createProviderEnabledToggle(provider: INeocodeSwarmProviderConfig, stopPropagation = false): HTMLButtonElement {
+		const toggle = DOM.$('button.neocode-provider-toggle', { type: 'button' }) as HTMLButtonElement;
+		this.applyProviderEnabledToggleState(toggle, provider.enabled);
+		this.tabDisposables.add(DOM.addDisposableListener(toggle, DOM.EventType.CLICK, (event: MouseEvent) => {
+			if (stopPropagation) {
+				event.stopPropagation();
+			}
+			this.setProviderEnabled(provider, !provider.enabled);
+		}));
+		return toggle;
+	}
+
+	private applyProviderEnabledToggleState(toggle: HTMLButtonElement, enabled: boolean): void {
+		toggle.classList.toggle('is-active', enabled);
+		toggle.classList.toggle('is-inactive', !enabled);
+		toggle.textContent = enabled
+			? localize('neoSwarm.providerEnabled', "Ativo")
+			: localize('neoSwarm.providerDisabled', "Inativo");
+		toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+		toggle.title = enabled
+			? localize('neoSwarm.providerDisableAction', "Clique para desativar este provedor.")
+			: localize('neoSwarm.providerEnableAction', "Clique para ativar este provedor.");
+	}
+
+	private setProviderEnabled(provider: INeocodeSwarmProviderConfig, enabled: boolean): void {
+		if (provider.enabled === enabled) {
+			return;
+		}
+		provider.enabled = enabled;
+		this.reconcileProviderActivation();
+		this.saveConfig(undefined, true);
+		this.renderActiveTab();
+	}
+
+	private reconcileProviderActivation(): void {
+		const enabledProviders = this.config.providers.filter(candidate => candidate.enabled);
+
+		const activeOrchestratorProvider = this.config.providers.find(
+			candidate => candidate.id === this.config.orchestrator.providerId && candidate.enabled
+		);
+		if (!activeOrchestratorProvider) {
+			const fallbackProvider = enabledProviders[0];
+			this.config.orchestrator.providerId = fallbackProvider?.id;
+			this.config.orchestrator.model = fallbackProvider
+				? (fallbackProvider.selectedModel ?? fallbackProvider.models[0] ?? undefined)
+				: undefined;
+		} else if (!this.config.orchestrator.model || !activeOrchestratorProvider.models.includes(this.config.orchestrator.model)) {
+			this.config.orchestrator.model = activeOrchestratorProvider.selectedModel ?? activeOrchestratorProvider.models[0] ?? undefined;
+		}
+
+		const enabledProviderIds = new Set(enabledProviders.map(candidate => candidate.id));
+		for (const agent of this.config.agents) {
+			if (agent.providerId && !enabledProviderIds.has(agent.providerId)) {
+				agent.providerId = this.config.orchestrator.providerId;
+			}
+		}
+	}
+
 	private appendSelect(parent: HTMLElement, label: string, value: string, options: { value: string, label: string }[], onChange: (v: string) => void): HTMLElement {
 		const row = DOM.append(parent, DOM.$('.neocode-field-row'));
 		DOM.append(row, DOM.$('label', undefined, label));
@@ -1843,7 +1848,7 @@ export class NeocodeSwarmSettingsEditor extends EditorPane {
 	}
 
 	private orchestratorModelOptions(): { value: string, label: string }[] {
-		const provider = this.config.providers.find(p => p.id === this.config.orchestrator.providerId);
+		const provider = this.config.providers.find(p => p.id === this.config.orchestrator.providerId && p.enabled);
 		const models = provider?.models ?? [];
 		if (!models.length) {
 			return [{ value: '', label: localize('neoSwarm.noModelAvailable', "Nenhum modelo disponivel") }];

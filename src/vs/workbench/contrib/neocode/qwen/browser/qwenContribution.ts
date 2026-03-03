@@ -6,7 +6,7 @@
 import { Codicon } from '../../../../../base/common/codicons.js';
 import { localize, localize2 } from '../../../../../nls.js';
 import { Categories } from '../../../../../platform/action/common/actionCommonCategories.js';
-import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../../platform/actions/common/actions.js';
+import { Action2, MenuId, registerAction2 } from '../../../../../platform/actions/common/actions.js';
 import { SyncDescriptor } from '../../../../../platform/instantiation/common/descriptors.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../../platform/instantiation/common/extensions.js';
@@ -23,24 +23,6 @@ registerSingleton(IQwenAuthService, QwenAuthService, InstantiationType.Delayed);
 
 const NEOCODE_SETTINGS_MENU = MenuId.for('NeoCodeSettingsMenu');
 const NEOCODE_GLOBAL_SETTINGS_MENU = MenuId.for('NeoCodeGlobalSettingsMenu');
-
-MenuRegistry.appendMenuItem(NEOCODE_SETTINGS_MENU, {
-	command: {
-		id: NEO_QWEN_COMMAND_OPEN_SETTINGS,
-		title: localize('neocode.qwen.menu.local', 'Qwen...')
-	},
-	group: '1_neocode',
-	order: 2
-});
-
-MenuRegistry.appendMenuItem(NEOCODE_GLOBAL_SETTINGS_MENU, {
-	command: {
-		id: NEO_QWEN_COMMAND_OPEN_SETTINGS,
-		title: localize('neocode.qwen.menu.global', 'Qwen...')
-	},
-	group: '1_neocode',
-	order: 2
-});
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
 	EditorPaneDescriptor.create(

@@ -16,6 +16,15 @@ export interface IQwenOAuthWorkerPostOptions {
 	headers?: Record<string, string>;
 }
 
+export interface IQwenOAuthWorkerPostMultipartBase64Options {
+	url: string;
+	fileBase64: string;
+	fileName: string;
+	fileMimeType: string;
+	fields?: Record<string, string>;
+	headers?: Record<string, string>;
+}
+
 export interface IQwenOAuthWorkerPostResult {
 	statusCode: number;
 	body: string;
@@ -34,6 +43,12 @@ export interface IQwenOAuthWorkerService {
 	 * Make a POST request from the Node.js process (no CORS restrictions).
 	 */
 	post(options: IQwenOAuthWorkerPostOptions): Promise<IQwenOAuthWorkerPostResult>;
+
+	/**
+	 * Makes a multipart/form-data POST request using a base64 file payload.
+	 * Useful for endpoints like /audio/transcriptions when running in qwen-oauth mode.
+	 */
+	postMultipartBase64?(options: IQwenOAuthWorkerPostMultipartBase64Options): Promise<IQwenOAuthWorkerPostResult>;
 
 	/**
 	 * Makes a streaming POST request.

@@ -196,24 +196,14 @@ class SCMInputWidgetToolbar extends WorkbenchToolBar {
 		const updateToolbar = () => {
 			const actions = getFlatActionBarActions(menu.getActions({ shouldForwardArgs: true }));
 
-			for (const action of actions) {
+			// Show only NeoCode actions as plain icon buttons; skip native git commit actions
+			const neoActions = actions.filter(a => a.id.startsWith('neocode.'));
+			for (const action of neoActions) {
 				action.enabled = isEnabled();
 			}
-			this._dropdownAction.enabled = isEnabled();
 
-			let primaryAction: IAction | undefined = undefined;
-
-			if ((this.actionRunner as SCMInputWidgetActionRunner).runningActions.size !== 0) {
-				primaryAction = this._cancelAction;
-			} else if (actions.length === 1) {
-				primaryAction = actions[0];
-			} else if (actions.length > 1) {
-				const lastActionId = this.storageService.get(SCMInputWidgetStorageKey.LastActionId, StorageScope.PROFILE, '');
-				primaryAction = actions.find(a => a.id === lastActionId) ?? actions[0];
-			}
-
-			this._dropdownActions = actions.length === 1 ? [] : actions;
-			super.setActions(primaryAction ? [primaryAction] : [], []);
+			this._dropdownActions = [];
+			super.setActions(neoActions, []);
 
 			this._onDidChange.fire();
 		};
@@ -351,6 +341,8 @@ class SCMInputWidgetEditorOptions {
 
 export class SCMInputWidget {
 
+	static readonly TOOLBAR_HEIGHT = 28;
+
 	private static readonly ValidationTimeouts: { [severity: number]: number } = {
 		[InputValidationType.Information]: 5000,
 		[InputValidationType.Warning]: 8000,
@@ -382,6 +374,7 @@ export class SCMInputWidget {
 	private lastLayoutWasTrash = false;
 	private shouldFocusAfterLayout = false;
 
+	private readonly _onDidChangeContentHeight: Emitter<void>;
 	readonly onDidChangeContentHeight: Event<void>;
 
 	get input(): ISCMInput | undefined {
@@ -655,9 +648,18 @@ export class SCMInputWidget {
 			this.toolbarContainer.classList.toggle('scroll-decoration', e.scrollTop > 0);
 		}));
 
-		Event.filter(this.configurationService.onDidChangeConfiguration, e => e.affectsConfiguration('scm.showInputActionButton'))(() => this.layout(), this, this.disposables);
+		this._onDidChangeContentHeight = this.disposables.add(new Emitter<void>());
+		this.onDidChangeContentHeight = this._onDidChangeContentHeight.event;
+		this.disposables.add(this.inputEditor.onDidContentSizeChange(e => {
+			if (e.contentHeightChanged) {
+				this._onDidChangeContentHeight.fire();
+			}
+		}));
 
-		this.onDidChangeContentHeight = Event.signal(Event.filter(this.inputEditor.onDidContentSizeChange, e => e.contentHeightChanged, this.disposables));
+		Event.filter(this.configurationService.onDidChangeConfiguration, e => e.affectsConfiguration('scm.showInputActionButton'))(() => {
+			this.layout();
+			this._onDidChangeContentHeight.fire();
+		}, this, this.disposables);
 
 		// Toolbar
 		this.toolbar = instantiationService2.createInstance(SCMInputWidgetToolbar, this.toolbarContainer, {
@@ -673,11 +675,14 @@ export class SCMInputWidget {
 				shouldForwardArgs: true
 			}
 		});
-		this.disposables.add(this.toolbar.onDidChange(() => this.layout()));
+		this.disposables.add(this.toolbar.onDidChange(() => {
+			this.layout();
+			this._onDidChangeContentHeight.fire();
+		}));
 		this.disposables.add(this.toolbar);
 	}
 
-	getContentHeight(): number {
+	private getEditorHeight(): number {
 		const lineHeight = this.inputEditor.getOption(EditorOption.lineHeight);
 		const { top, bottom } = this.inputEditor.getOption(EditorOption.padding);
 
@@ -692,8 +697,15 @@ export class SCMInputWidget {
 		return clamp(this.inputEditor.getContentHeight(), editorMinHeight, editorMaxHeight);
 	}
 
+	getContentHeight(): number {
+		const editorHeight = this.getEditorHeight();
+		const showInputActionButton = this.configurationService.getValue<boolean>('scm.showInputActionButton') === true;
+		const toolbarVisible = showInputActionButton && this.toolbar?.isEmpty() !== true;
+		return editorHeight + (toolbarVisible ? SCMInputWidget.TOOLBAR_HEIGHT : 0);
+	}
+
 	layout(): void {
-		const editorHeight = this.getContentHeight();
+		const editorHeight = this.getEditorHeight();
 		const toolbarWidth = this.getToolbarWidth();
 		const dimension = new Dimension(this.element.clientWidth - toolbarWidth, editorHeight);
 
@@ -809,14 +821,9 @@ export class SCMInputWidget {
 	}
 
 	private getToolbarWidth(): number {
-		const showInputActionButton = this.configurationService.getValue<boolean>('scm.showInputActionButton');
-		if (!this.toolbar || !showInputActionButton || this.toolbar?.isEmpty() === true) {
-			return 0;
-		}
-
-		return this.toolbar.dropdownActions.length === 0 ?
-			26 /* 22px action + 4px margin */ :
-			39 /* 35px action + 4px margin */;
+		// Toolbar is now rendered below the editor (flex-direction: column),
+		// so it does not consume horizontal space.
+		return 0;
 	}
 
 	clearValidation(): void {

@@ -5,6 +5,7 @@
 
 import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
+import { generateUuid } from '../../../../../base/common/uuid.js';
 import { localize } from '../../../../../nls.js';
 import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
@@ -28,7 +29,11 @@ import {
 	IQwenDiagnostics,
 	IQwenProviderConfig,
 	IQwenRuntimeEnvResult,
+	IQwenStoredCredential,
+	IQwenOAuthStartOptions,
 	NEO_QWEN_SECRET_API_KEY,
+	NEO_QWEN_SECRET_API_KEY_PREFIX,
+	NEO_QWEN_SECRET_OAUTH_CREDENTIAL_PREFIX,
 	NEO_QWEN_STORAGE_KEY
 } from '../common/qwenTypes.js';
 
@@ -64,25 +69,51 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 		try {
 			const parsed = JSON.parse(raw) as Partial<IQwenProviderConfig>;
 			const protocol = parsed.protocol ?? fallback.protocol;
-			return {
+			return this.normalizeConfig({
 				...fallback,
 				...parsed,
 				envVarName: parsed.envVarName || protocolDefaultEnvVar(protocol),
-			};
+			});
 		} catch {
 			return fallback;
 		}
 	}
 
-	async saveApiKeyConfig(config: Partial<IQwenProviderConfig> & { apiKey: string }): Promise<void> {
+	async saveApiKeyConfig(config: Partial<IQwenProviderConfig> & { apiKey: string; credentialId?: string; credentialName?: string; createNewCredential?: boolean }): Promise<void> {
 		const current = this.loadConfig();
+		const now = Date.now();
 		const next: IQwenProviderConfig = {
 			...current,
 			...config,
 			authType: 'apiKey',
 			envVarName: config.envVarName || protocolDefaultEnvVar(config.protocol ?? current.protocol),
 		};
+		const credentials = [...(next.credentials ?? [])];
+		const targetCredentialId = this.resolveTargetCredentialId(credentials, 'apiKey', {
+			credentialId: config.credentialId,
+			createNewCredential: config.createNewCredential,
+			activeCredentialId: next.activeCredentialId,
+		});
+		const existing = credentials.find(credential => credential.id === targetCredentialId);
+		const credentialName = config.credentialName?.trim()
+			|| existing?.name
+			|| `Qwen API Key ${new Date(now).toLocaleString()}`;
+		const updatedCredential: IQwenStoredCredential = {
+			id: targetCredentialId,
+			name: credentialName,
+			authType: 'apiKey',
+			createdAt: existing?.createdAt ?? now,
+			updatedAt: now,
+			lastUsedAt: existing?.lastUsedAt,
+		};
+		this.upsertCredential(credentials, updatedCredential);
+		next.credentials = credentials;
+		next.activeCredentialId = targetCredentialId;
+
+		await this.secretStorageService.set(this.apiKeySecretForCredential(targetCredentialId), config.apiKey.trim());
+		// Backward compatibility with previous single-key storage.
 		await this.secretStorageService.set(NEO_QWEN_SECRET_API_KEY, config.apiKey.trim());
+
 		this.storeConfig(next);
 		await this.syncQwenConfig();
 	}
@@ -157,19 +188,25 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 
 	private _activeDeviceFlowController?: QwenOAuthDeviceFlowController;
 
-	async startNativeOAuthFlow(onProgress?: (msg: string) => void): Promise<IQwenConnectionTestResult> {
+	async startNativeOAuthFlow(onProgress?: (msg: string) => void, options?: IQwenOAuthStartOptions): Promise<IQwenConnectionTestResult> {
 		const config = this.loadConfig();
 		let controller: QwenOAuthDeviceFlowController | undefined;
 		try {
-			// First check if we already have valid credentials cached
-			if (onProgress) {
-				onProgress(localize('neocode.qwen.oauth.checking', 'Verificando credenciais OAuth existentes...'));
-			}
+			const skipExistingCheck = options?.skipExistingCheck ?? options?.createNewCredential ?? false;
+			if (!skipExistingCheck) {
+				if (onProgress) {
+					onProgress(localize('neocode.qwen.oauth.checking', 'Verificando credenciais OAuth existentes...'));
+				}
 
-			const existing = await this.checkOAuthCredsFile();
-			if (existing?.ok) {
-				this.storeConfig({ ...config, authType: 'qwen-oauth', lastConnectionStatus: 'connected', lastConnectionMessage: existing.message });
-				return existing;
+				const existing = await this.checkOAuthCredsFile();
+				if (existing?.ok) {
+					const existingCreds = await this.readOAuthCredsFromFile();
+					if (existingCreds) {
+						await this.saveOAuthCredentialMetadata(config, existingCreds, options);
+					}
+					this.storeConfig({ ...this.loadConfig(), authType: 'qwen-oauth', lastConnectionStatus: 'connected', lastConnectionMessage: existing.message });
+					return existing;
+				}
 			}
 
 			// Run the device code flow natively
@@ -183,8 +220,11 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 			});
 
 			if (result.ok) {
+				if (result.credentials) {
+					await this.saveOAuthCredentialMetadata(config, result.credentials, options);
+				}
 				this.storeConfig({
-					...config,
+					...this.loadConfig(),
 					authType: 'qwen-oauth',
 					lastConnectionStatus: 'connected',
 					lastConnectionMessage: result.message,
@@ -219,6 +259,53 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 		this._activeDeviceFlowController = undefined;
 	}
 
+	listCredentials(): IQwenStoredCredential[] {
+		return [...(this.loadConfig().credentials ?? [])]
+			.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+	}
+
+	async setActiveCredential(credentialId: string): Promise<void> {
+		const current = this.loadConfig();
+		const credentials = [...(current.credentials ?? [])];
+		const found = credentials.find(credential => credential.id === credentialId);
+		if (!found) {
+			throw new Error(localize('neocode.qwen.credential.notFound', 'Credencial selecionada nao encontrada.'));
+		}
+		found.lastUsedAt = Date.now();
+		this.upsertCredential(credentials, found);
+		this.storeConfig({
+			...current,
+			credentials,
+			activeCredentialId: credentialId,
+			authType: found.authType,
+		});
+		await this.syncQwenConfig();
+	}
+
+	async removeCredential(credentialId: string): Promise<void> {
+		const current = this.loadConfig();
+		const credentials = [...(current.credentials ?? [])];
+		const filtered = credentials.filter(credential => credential.id !== credentialId);
+		if (filtered.length === credentials.length) {
+			return;
+		}
+		await this.secretStorageService.delete(this.apiKeySecretForCredential(credentialId));
+		await this.secretStorageService.delete(this.oauthSecretForCredential(credentialId));
+
+		let nextActive = current.activeCredentialId;
+		if (nextActive === credentialId) {
+			nextActive = filtered[0]?.id;
+		}
+		const activeCredential = filtered.find(credential => credential.id === nextActive);
+		this.storeConfig({
+			...current,
+			credentials: filtered,
+			activeCredentialId: nextActive,
+			authType: activeCredential?.authType ?? current.authType,
+		});
+		await this.syncQwenConfig();
+	}
+
 	async detectQwenCli(): Promise<IQwenCliInfo> {
 		const config = this.loadConfig();
 		return this.cliBridge.detectQwenCli(config.cliPathOverride);
@@ -243,13 +330,24 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 	}
 
 	async clearAllQwenCredentials(): Promise<void> {
+		const current = this.loadConfig();
 		await this.secretStorageService.delete(NEO_QWEN_SECRET_API_KEY);
+		for (const credential of current.credentials ?? []) {
+			await this.secretStorageService.delete(this.apiKeySecretForCredential(credential.id));
+			await this.secretStorageService.delete(this.oauthSecretForCredential(credential.id));
+		}
 		await this.clearOAuthCredentialFiles();
 		this._activeDeviceFlowController?.cancel();
 		this._activeDeviceFlowController?.dispose();
 		this._activeDeviceFlowController = undefined;
-		const current = this.loadConfig();
-		this.storeConfig({ ...current, lastConnectionStatus: 'unknown', lastConnectionMessage: 'Credenciais removidas.' });
+		this.storeConfig({
+			...current,
+			credentials: [],
+			activeCredentialId: undefined,
+			lastConnectionStatus: 'unknown',
+			lastConnectionMessage: 'Credenciais removidas.',
+		});
+		await this.syncQwenConfig();
 	}
 
 	private async clearOAuthCredentialFiles(): Promise<void> {
@@ -266,22 +364,32 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 
 	async buildRuntimeEnv(): Promise<IQwenRuntimeEnvResult> {
 		const config = this.loadConfig();
-		const apiKey = (await this.secretStorageService.get(NEO_QWEN_SECRET_API_KEY))?.trim();
 		const env: Record<string, string> = {};
-		if (apiKey && config.authType === 'apiKey') {
-			env[config.envVarName] = apiKey;
+		const activeCredential = this.getActiveCredential(config);
+
+		if (config.authType === 'apiKey') {
+			let apiKey = activeCredential && activeCredential.authType === 'apiKey'
+				? (await this.secretStorageService.get(this.apiKeySecretForCredential(activeCredential.id)))?.trim()
+				: undefined;
+			if (!apiKey) {
+				apiKey = (await this.secretStorageService.get(NEO_QWEN_SECRET_API_KEY))?.trim();
+			}
+			if (apiKey) {
+				env[config.envVarName] = apiKey;
+			}
 		}
 
-		// OAuth: load access_token from ~/.qwen/oauth_creds.json
+		// OAuth: first try active credential snapshot, then fallback to ~/.qwen/oauth_creds.json
 		if (config.authType === 'qwen-oauth' && !env[config.envVarName]) {
 			let refreshFailure: Error | undefined;
+			let creds = activeCredential?.authType === 'qwen-oauth'
+				? await this.readOAuthCredentialFromSecret(activeCredential.id)
+				: undefined;
+			if (!creds) {
+				creds = await this.readOAuthCredsFromFile();
+			}
 			try {
-				const userHomeUri = await this.pathService.userHome();
-				const credUri = URI.joinPath(userHomeUri, '.qwen', 'oauth_creds.json');
-				const content = await this.fileService.readFile(credUri);
-				let creds = JSON.parse(content.value.toString()) as IQwenOAuthCredentials;
-
-				if (creds.access_token && creds.refresh_token && creds.expiry_date) {
+				if (creds?.access_token && creds.refresh_token && creds.expiry_date) {
 					const now = Date.now();
 					// Expired or expiring in < 5 mins
 					if (now + 5 * 60 * 1000 > creds.expiry_date) {
@@ -294,7 +402,7 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 							const result = await controller.refreshAccessToken(creds.refresh_token, creds.resource_url);
 
 							if (result.ok && result.credentials) {
-									creds = result.credentials;
+								creds = result.credentials;
 								this.logService.info('[neocode qwen auth] Token refreshed successfully.');
 							} else {
 								const canKeepUsingCurrentToken =
@@ -308,6 +416,9 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 									const message = result.message || localize('neocode.qwen.oauth.refreshFailed', 'Falha ao atualizar token. Por favor, autentique-se novamente.');
 									this.logService.error('[neocode qwen auth] Token refresh failed:', message);
 									await this.clearOAuthCredentialFiles();
+									if (activeCredential?.authType === 'qwen-oauth') {
+										await this.secretStorageService.delete(this.oauthSecretForCredential(activeCredential.id));
+									}
 									refreshFailure = new Error(message);
 								}
 							}
@@ -317,12 +428,15 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 					}
 				}
 
-				if (creds.resource_url?.trim()) {
+				if (creds?.resource_url?.trim()) {
 					env['QWEN_OAUTH_RESOURCE_URL'] = creds.resource_url.trim();
 				}
 
-				if (creds.access_token?.trim() && !refreshFailure) {
+				if (creds?.access_token?.trim() && !refreshFailure) {
 					env[config.envVarName] = creds.access_token.trim();
+					if (activeCredential?.authType === 'qwen-oauth') {
+						await this.secretStorageService.set(this.oauthSecretForCredential(activeCredential.id), JSON.stringify(creds));
+					}
 				}
 			} catch (error) {
 				// OAuth creds not found or unreadable — will fall through to "API key ausente"
@@ -361,7 +475,136 @@ export class QwenAuthService extends Disposable implements IQwenAuthService {
 		await this.configWriter.removeGeneratedConfig();
 	}
 
+	private normalizeConfig(config: IQwenProviderConfig): IQwenProviderConfig {
+		const credentials = Array.isArray(config.credentials)
+			? config.credentials
+				.filter(credential => !!credential?.id && !!credential?.authType)
+				.map(credential => ({
+					...credential,
+					name: credential.name?.trim() || `Credencial ${credential.id.slice(0, 6)}`,
+				}))
+			: [];
+		const activeCredentialId = credentials.some(credential => credential.id === config.activeCredentialId)
+			? config.activeCredentialId
+			: credentials[0]?.id;
+		return {
+			...config,
+			credentials,
+			activeCredentialId,
+		};
+	}
+
+	private getActiveCredential(config: IQwenProviderConfig): IQwenStoredCredential | undefined {
+		const credentials = config.credentials ?? [];
+		if (!credentials.length) {
+			return undefined;
+		}
+		if (config.activeCredentialId) {
+			const active = credentials.find(credential => credential.id === config.activeCredentialId);
+			if (active) {
+				return active;
+			}
+		}
+		return credentials[0];
+	}
+
+	private resolveTargetCredentialId(
+		credentials: IQwenStoredCredential[],
+		authType: IQwenStoredCredential['authType'],
+		options: { credentialId?: string; createNewCredential?: boolean; activeCredentialId?: string },
+	): string {
+		if (options.credentialId) {
+			return options.credentialId;
+		}
+		if (!options.createNewCredential && options.activeCredentialId) {
+			const active = credentials.find(credential => credential.id === options.activeCredentialId);
+			if (active?.authType === authType) {
+				return active.id;
+			}
+		}
+		return generateUuid();
+	}
+
+	private upsertCredential(credentials: IQwenStoredCredential[], credential: IQwenStoredCredential): void {
+		const index = credentials.findIndex(item => item.id === credential.id);
+		if (index >= 0) {
+			credentials[index] = credential;
+			return;
+		}
+		credentials.push(credential);
+	}
+
+	private apiKeySecretForCredential(credentialId: string): string {
+		return `${NEO_QWEN_SECRET_API_KEY_PREFIX}${credentialId}`;
+	}
+
+	private oauthSecretForCredential(credentialId: string): string {
+		return `${NEO_QWEN_SECRET_OAUTH_CREDENTIAL_PREFIX}${credentialId}`;
+	}
+
+	private async readOAuthCredentialFromSecret(credentialId: string): Promise<IQwenOAuthCredentials | undefined> {
+		try {
+			const raw = await this.secretStorageService.get(this.oauthSecretForCredential(credentialId));
+			if (!raw?.trim()) {
+				return undefined;
+			}
+			return JSON.parse(raw) as IQwenOAuthCredentials;
+		} catch {
+			return undefined;
+		}
+	}
+
+	private async readOAuthCredsFromFile(): Promise<IQwenOAuthCredentials | undefined> {
+		try {
+			const userHomeUri = await this.pathService.userHome();
+			const credUri = URI.joinPath(userHomeUri, '.qwen', 'oauth_creds.json');
+			const content = await this.fileService.readFile(credUri);
+			const text = content.value.toString();
+			if (!text.trim()) {
+				return undefined;
+			}
+			return JSON.parse(text) as IQwenOAuthCredentials;
+		} catch {
+			return undefined;
+		}
+	}
+
+	private async saveOAuthCredentialMetadata(
+		currentConfig: IQwenProviderConfig,
+		credentialsPayload: IQwenOAuthCredentials,
+		options?: IQwenOAuthStartOptions,
+	): Promise<void> {
+		const now = Date.now();
+		const next = this.loadConfig();
+		const credentials = [...(next.credentials ?? [])];
+		const targetCredentialId = this.resolveTargetCredentialId(credentials, 'qwen-oauth', {
+			credentialId: options?.credentialId,
+			createNewCredential: options?.createNewCredential,
+			activeCredentialId: next.activeCredentialId,
+		});
+		const existing = credentials.find(credential => credential.id === targetCredentialId);
+		const credentialName = options?.credentialName?.trim()
+			|| existing?.name
+			|| `Qwen OAuth ${new Date(now).toLocaleString()}`;
+		this.upsertCredential(credentials, {
+			id: targetCredentialId,
+			name: credentialName,
+			authType: 'qwen-oauth',
+			createdAt: existing?.createdAt ?? now,
+			updatedAt: now,
+			lastUsedAt: now,
+		});
+		await this.secretStorageService.set(this.oauthSecretForCredential(targetCredentialId), JSON.stringify(credentialsPayload));
+		this.storeConfig({
+			...currentConfig,
+			...next,
+			authType: 'qwen-oauth',
+			credentials,
+			activeCredentialId: targetCredentialId,
+		});
+	}
+
 	private storeConfig(config: IQwenProviderConfig): void {
-		this.storageService.store(NEO_QWEN_STORAGE_KEY, JSON.stringify(config), StorageScope.PROFILE, StorageTarget.USER);
+		this.storageService.store(NEO_QWEN_STORAGE_KEY, JSON.stringify(this.normalizeConfig(config)), StorageScope.PROFILE, StorageTarget.USER);
 	}
 }

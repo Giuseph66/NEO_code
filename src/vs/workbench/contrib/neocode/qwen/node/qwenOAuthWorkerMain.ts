@@ -11,6 +11,7 @@ import { Server as UtilityProcessServer } from '../../../../../base/parts/ipc/no
 import { isUtilityProcess } from '../../../../../base/parts/sandbox/node/electronTypes.js';
 import {
 	IQwenOAuthWorkerPostOptions,
+	IQwenOAuthWorkerPostMultipartBase64Options,
 	IQwenOAuthWorkerPostResult,
 	IQwenOAuthWorkerService,
 	IQwenOAuthWorkerStreamChunk,
@@ -34,6 +35,35 @@ class QwenOAuthWorkerService extends Disposable implements IQwenOAuthWorkerServi
 			method: 'POST',
 			headers,
 			body: options.body,
+		});
+
+		const body = await response.text();
+		return {
+			statusCode: response.status,
+			body,
+		};
+	}
+
+	async postMultipartBase64(options: IQwenOAuthWorkerPostMultipartBase64Options): Promise<IQwenOAuthWorkerPostResult> {
+		const formData = new FormData();
+		const fileBuffer = Buffer.from(options.fileBase64, 'base64');
+		const fileBlob = new Blob([fileBuffer], { type: options.fileMimeType || 'application/octet-stream' });
+		formData.append('file', fileBlob, options.fileName || 'audio.webm');
+
+		for (const [key, value] of Object.entries(options.fields ?? {})) {
+			if (typeof value === 'string' && value.length > 0) {
+				formData.append(key, value);
+			}
+		}
+
+		const headers: Record<string, string> = { ...(options.headers ?? {}) };
+		delete headers['Content-Type'];
+		delete headers['content-type'];
+
+		const response = await fetch(options.url, {
+			method: 'POST',
+			headers,
+			body: formData,
 		});
 
 		const body = await response.text();

@@ -362,7 +362,14 @@
 }
 
 .scm-view .scm-input .scm-editor .scm-editor-toolbar {
-	padding: 1px 3px 1px 1px;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	padding: 3px 6px;
+	gap: 2px;
+	border-top: 1px solid var(--vscode-input-border, transparent);
+	box-sizing: border-box;
+	height: 28px;
 }
 
 .scm-view .scm-input .scm-editor .scm-editor-toolbar.hidden {
@@ -377,6 +384,10 @@
 	color: var(--vscode-icon-foreground) !important;
 }
 
+.scm-view .scm-editor-container {
+	width: 100%;
+}
+
 .scm-view .scm-editor-container .monaco-editor {
 	border-radius: 4px;
 }
@@ -389,8 +400,7 @@
 	box-sizing: border-box;
 	width: 100%;
 	display: flex;
-	align-items: flex-start;
-	box-sizing: border-box;
+	flex-direction: column;
 	border: 1px solid var(--vscode-input-border, transparent);
 	background-color: var(--vscode-input-background);
 	border-radius: 4px;

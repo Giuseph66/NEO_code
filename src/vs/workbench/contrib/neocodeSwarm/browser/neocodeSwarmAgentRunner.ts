@@ -7,13 +7,14 @@ import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
-import { QwenRuntimeAdapter, IQwenSdkTaskOptions } from '../../neocode/qwen/browser/qwenRuntimeAdapter.js';
-import { INeocodeToolExecutor } from '../../neocode/qwen/common/qwenTypes.js';
+import { QwenRuntimeAdapter, IQwenSdkTaskOptions, IQwenTokenUsage } from '../../neocode/qwen/browser/qwenRuntimeAdapter.js';
+import { INeocodeToolCall, INeocodeToolExecutor, INeocodeToolResult } from '../../neocode/qwen/common/qwenTypes.js';
 import {
 	INeocodeSwarmProviderConfig,
 	NeocodeSwarmProviderType,
 	ISwarmAgentPlan,
 	ISwarmAgentLogEntry,
+	ISwarmTokenUsage,
 	SwarmAgentStatus,
 } from '../common/neocodeSwarmTypes.js';
 
@@ -21,6 +22,7 @@ export interface IAgentProgressUpdate {
 	agentId: string;
 	status: SwarmAgentStatus;
 	log?: ISwarmAgentLogEntry;
+	tokenUsage?: ISwarmTokenUsage;
 }
 
 export interface ISwarmAgentRunOptions {
@@ -79,6 +81,7 @@ function buildAgentProviderConfig(provider: INeocodeSwarmProviderConfig) {
  */
 export class NeocodeSwarmAgentRunner extends Disposable {
 	private readonly adapter: QwenRuntimeAdapter;
+	private static readonly TOOL_RESULT_PREVIEW_LIMIT = 8000;
 
 	constructor(
 		@IInstantiationService instantiationService: IInstantiationService,
@@ -133,18 +136,65 @@ Não explique apenas como fazer — FAÇA usando as ferramentas disponíveis.`;
 			env[providerConfig.envVarName] = apiKey;
 		}
 
+		const detailedToolExecutor: INeocodeToolExecutor = {
+			getTools: () => toolExecutor.getTools(),
+			execute: async (call: INeocodeToolCall): Promise<INeocodeToolResult> => {
+				const startedAt = Date.now();
+				try {
+					const result = await toolExecutor.execute(call);
+					onUpdate({
+						agentId: plan.id,
+						status: 'working',
+						log: {
+							type: 'tool',
+							content: call.name,
+							timestamp: Date.now(),
+							details: {
+								toolCallId: call.id,
+								arguments: call.arguments,
+								result: this.trimToolResult(result.content),
+								isError: result.isError ?? false,
+								durationMs: Date.now() - startedAt,
+							},
+						},
+					});
+					return result;
+				} catch (err) {
+					const msg = err instanceof Error ? err.message : String(err);
+					onUpdate({
+						agentId: plan.id,
+						status: 'working',
+						log: {
+							type: 'tool',
+							content: call.name,
+							timestamp: Date.now(),
+							details: {
+								toolCallId: call.id,
+								arguments: call.arguments,
+								result: this.trimToolResult(msg),
+								isError: true,
+								durationMs: Date.now() - startedAt,
+							},
+						},
+					});
+					throw err;
+				}
+			},
+		};
+
 		const sdkOptions: IQwenSdkTaskOptions = {
 			prompt: agentPrompt,
 			systemPrompt: agentSystemPrompt,
 			includePartialMessages: true,
 			permissionMode: 'default',
-			toolExecutor,
+			toolExecutor: detailedToolExecutor,
 			maxToolCallRounds: 10,
 		};
 
 		onUpdate({ agentId: plan.id, status: 'working' });
 
 		let result = '';
+		let latestUsage: ISwarmTokenUsage | undefined;
 		try {
 			const stream = this.adapter.runTask(providerConfig, { env, maskedEnv: {} }, sdkOptions, token);
 			for await (const chunk of stream) {
@@ -152,11 +202,12 @@ Não explique apenas como fazer — FAÇA usando as ferramentas disponíveis.`;
 
 				if (chunk.type === 'content' && chunk.value) {
 					result += chunk.value;
-				} else if (chunk.type === 'tool_call' && chunk.toolName) {
+				} else if (chunk.type === 'usage' && chunk.usage) {
+					latestUsage = this.normalizeUsage(chunk.usage);
 					onUpdate({
 						agentId: plan.id,
 						status: 'working',
-						log: { type: 'tool', content: chunk.toolName, timestamp: Date.now() },
+						tokenUsage: latestUsage,
 					});
 				} else if (chunk.type === 'error' && chunk.error) {
 					this.logService.error(`[neocode agent ${plan.name}/${modelLabel}] Error:`, chunk.error);
@@ -164,6 +215,7 @@ Não explique apenas como fazer — FAÇA usando as ferramentas disponíveis.`;
 						agentId: plan.id,
 						status: 'error',
 						log: { type: 'error', content: `[${modelLabel}] ${chunk.error}`, timestamp: Date.now() },
+						tokenUsage: latestUsage,
 					});
 					return `Erro em ${modelLabel}: ${chunk.error}`;
 				}
@@ -173,6 +225,7 @@ Não explique apenas como fazer — FAÇA usando as ferramentas disponíveis.`;
 				agentId: plan.id,
 				status: 'done',
 				log: { type: 'message', content: 'Tarefa concluída', timestamp: Date.now() },
+				tokenUsage: latestUsage,
 			});
 			return result || '(sem resposta)';
 		} catch (err) {
@@ -182,8 +235,24 @@ Não explique apenas como fazer — FAÇA usando as ferramentas disponíveis.`;
 				agentId: plan.id,
 				status: 'error',
 				log: { type: 'error', content: `[${modelLabel}] ${msg}`, timestamp: Date.now() },
+				tokenUsage: latestUsage,
 			});
 			return `Erro em ${modelLabel}: ${msg}`;
 		}
+	}
+
+	private normalizeUsage(usage: IQwenTokenUsage): ISwarmTokenUsage {
+		return {
+			promptTokens: Math.max(0, Math.floor(usage.promptTokens ?? 0)),
+			completionTokens: Math.max(0, Math.floor(usage.completionTokens ?? 0)),
+			totalTokens: Math.max(0, Math.floor(usage.totalTokens ?? ((usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)))),
+		};
+	}
+
+	private trimToolResult(content: string): string {
+		if (content.length <= NeocodeSwarmAgentRunner.TOOL_RESULT_PREVIEW_LIMIT) {
+			return content;
+		}
+		return `${content.slice(0, NeocodeSwarmAgentRunner.TOOL_RESULT_PREVIEW_LIMIT)}\n\n... [resultado truncado para exibição no modal]`;
 	}
 }

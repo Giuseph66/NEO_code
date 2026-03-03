@@ -287,6 +287,7 @@ export class ChatWidget extends Disposable implements IChatWidget {
 	private swarmConfig: INeocodeSwarmConfig = createDefaultNeocodeSwarmConfig();
 	private swarmRuntime: ISwarmRuntimeState | undefined;
 	private swarmDetailsExpanded = false;
+	private swarmMinimized = false;
 	private swarmRunCounter = 0;
 	private readonly swarmSimulationDisposables = this._register(new DisposableStore());
 	private readonly swarmUiDisposables = this._register(new DisposableStore());
@@ -711,10 +712,10 @@ export class ChatWidget extends Disposable implements IChatWidget {
 		const renderInputToolbarBelowInput = this.viewOptions.renderInputToolbarBelowInput ?? false;
 
 		this.container = dom.append(parent, $('.interactive-session'));
-		this.welcomeMessageContainer = dom.append(this.container, $('.chat-welcome-view-container', { style: 'display: none' }));
-		this._register(dom.addStandardDisposableListener(this.welcomeMessageContainer, dom.EventType.CLICK, () => this.focusInput()));
 		this.swarmActivityContainer = dom.append(this.container, $('.chat-swarm-activity-container'));
 		this.renderSwarmActivityCard();
+		this.welcomeMessageContainer = dom.append(this.container, $('.chat-welcome-view-container', { style: 'display: none' }));
+		this._register(dom.addStandardDisposableListener(this.welcomeMessageContainer, dom.EventType.CLICK, () => this.focusInput()));
 
 		this._register(this.chatSuggestNextWidget.onDidChangeHeight(() => {
 			if (this.bodyDimension) {
@@ -1181,12 +1182,25 @@ export class ChatWidget extends Disposable implements IChatWidget {
 		dom.clearNode(this.swarmActivityContainer);
 
 		const card = dom.append(this.swarmActivityContainer, $('.chat-swarm-card'));
+		if (this.swarmMinimized) {
+			card.classList.add('minimized');
+		}
 		if (!this.swarmConfig.swarmEnabled) {
 			card.classList.add('disabled');
 		}
 
 		const header = dom.append(card, $('.chat-swarm-header'));
+
+		// Toggle button
+		const toggleBtn = dom.append(header, $('.chat-swarm-toggle-btn.codicon' + (this.swarmMinimized ? '.codicon-chevron-down' : '.codicon-chevron-up')));
+		this.swarmUiDisposables.add(dom.addDisposableListener(toggleBtn, dom.EventType.CLICK, (e) => {
+			e.stopPropagation();
+			this.swarmMinimized = !this.swarmMinimized;
+			this.renderSwarmActivityCard();
+		}));
+
 		dom.append(header, $('span.chat-swarm-title', undefined, localize('chat.swarm.title', "Enxame de Agentes")));
+
 		const statusText = !this.swarmConfig.swarmEnabled
 			? localize('chat.swarm.status.disabled', "Desativado")
 			: !this.swarmRuntime
@@ -1199,33 +1213,35 @@ export class ChatWidget extends Disposable implements IChatWidget {
 		const statusClass = !this.swarmConfig.swarmEnabled ? 'disabled' : (this.swarmRuntime?.status ?? 'idle');
 		dom.append(header, $(`span.chat-swarm-status.chat-swarm-status-${statusClass}`, undefined, statusText));
 
-		const orchestratorName = this.swarmRuntime?.orchestratorName ?? localize('chat.swarm.orchestrator', "Orquestrador");
-		dom.append(card, $('div.chat-swarm-summary', undefined, localize('chat.swarm.orchestratorLine', "Orquestrador: {0}", orchestratorName)));
+		if (!this.swarmMinimized) {
+			const orchestratorName = this.swarmRuntime?.orchestratorName ?? localize('chat.swarm.orchestrator', "Orquestrador");
+			dom.append(card, $('div.chat-swarm-summary', undefined, localize('chat.swarm.orchestratorLine', "Orquestrador: {0}", orchestratorName)));
 
-		if (this.swarmRuntime?.queryPreview) {
-			dom.append(card, $('div.chat-swarm-query', undefined, this.swarmRuntime.queryPreview));
-		}
+			if (this.swarmRuntime?.queryPreview) {
+				dom.append(card, $('div.chat-swarm-query', undefined, this.swarmRuntime.queryPreview));
+			}
 
-		this.renderSwarmAgentsSummary(card);
+			this.renderSwarmAgentsSummary(card);
 
-		const actions = dom.append(card, $('.chat-swarm-actions'));
-		if (this.swarmRuntime) {
-			const toggleDetails = dom.append(actions, $('button.chat-swarm-action', { type: 'button' }, this.swarmDetailsExpanded
-				? localize('chat.swarm.hideDetails', "Ocultar detalhes")
-				: localize('chat.swarm.showDetails', "Detalhes"))) as HTMLButtonElement;
-			this.swarmUiDisposables.add(dom.addDisposableListener(toggleDetails, dom.EventType.CLICK, () => {
-				this.swarmDetailsExpanded = !this.swarmDetailsExpanded;
-				this.renderSwarmActivityCard();
+			const actions = dom.append(card, $('.chat-swarm-actions'));
+			if (this.swarmRuntime) {
+				const toggleDetails = dom.append(actions, $('button.chat-swarm-action', { type: 'button' }, this.swarmDetailsExpanded
+					? localize('chat.swarm.hideDetails', "Ocultar detalhes")
+					: localize('chat.swarm.showDetails', "Detalhes"))) as HTMLButtonElement;
+				this.swarmUiDisposables.add(dom.addDisposableListener(toggleDetails, dom.EventType.CLICK, () => {
+					this.swarmDetailsExpanded = !this.swarmDetailsExpanded;
+					this.renderSwarmActivityCard();
+				}));
+			}
+
+			const configure = dom.append(actions, $('button.chat-swarm-action', { type: 'button' }, localize('chat.swarm.configure', "Configurar Enxame"))) as HTMLButtonElement;
+			this.swarmUiDisposables.add(dom.addDisposableListener(configure, dom.EventType.CLICK, () => {
+				void this.commandService.executeCommand(NEO_SWARM_OPEN_SETTINGS_COMMAND_ID);
 			}));
-		}
 
-		const configure = dom.append(actions, $('button.chat-swarm-action', { type: 'button' }, localize('chat.swarm.configure', "Configurar Enxame"))) as HTMLButtonElement;
-		this.swarmUiDisposables.add(dom.addDisposableListener(configure, dom.EventType.CLICK, () => {
-			void this.commandService.executeCommand(NEO_SWARM_OPEN_SETTINGS_COMMAND_ID);
-		}));
-
-		if (this.swarmDetailsExpanded && this.swarmRuntime) {
-			this.renderSwarmEventsTimeline(card);
+			if (this.swarmDetailsExpanded && this.swarmRuntime) {
+				this.renderSwarmEventsTimeline(card);
+			}
 		}
 
 		if (this.bodyDimension) {

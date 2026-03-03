@@ -13,7 +13,8 @@ export function createDefaultQwenProviderConfig(): IQwenProviderConfig {
 		displayName: 'Qwen Code',
 		envVarName: 'OPENAI_API_KEY',
 		lastConnectionStatus: 'unknown',
-		lastConnectionMessage: 'Nao testado.'
+		lastConnectionMessage: 'Nao testado.',
+		credentials: [],
 	};
 }
 
@@ -52,6 +53,8 @@ export function toExportConfig(config: IQwenProviderConfig): IQwenConfigExport {
 		displayName: config.displayName,
 		baseUrl: config.baseUrl,
 		envVarName: config.envVarName,
-		cliPathOverride: config.cliPathOverride
+		cliPathOverride: config.cliPathOverride,
+		credentials: config.credentials,
+		activeCredentialId: config.activeCredentialId,
 	};
 }

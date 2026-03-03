@@ -26,6 +26,16 @@ async function exists(subdir: string) {
 	}
 }
 
+async function allExist(paths: readonly string[]) {
+	for (const filePath of paths) {
+		if (!(await exists(filePath))) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
 async function ensureNodeModules() {
 	if (!(await exists('node_modules'))) {
 		await runProcess(npm, ['ci']);
@@ -37,7 +47,13 @@ async function getElectron() {
 }
 
 async function ensureCompiled() {
-	if (!(await exists('out'))) {
+	const requiredOutFiles = [
+		'out/main.js',
+		'out/cli.js',
+		'out/vs/platform/environment/node/userDataPath.js'
+	] as const;
+
+	if (!(await exists('out')) || !(await allExist(requiredOutFiles))) {
 		await runProcess(npm, ['run', 'compile']);
 	}
 }

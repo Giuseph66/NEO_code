@@ -8,10 +8,28 @@ import { createDecorator } from '../../../../../platform/instantiation/common/in
 export const NEO_QWEN_STORAGE_KEY = 'neocode.qwen.config.v1';
 export const NEO_QWEN_COMMAND_OPEN_SETTINGS = 'neocode.openQwenSettings';
 export const NEO_QWEN_SECRET_API_KEY = 'neocode.qwen.apiKey';
+export const NEO_QWEN_SECRET_API_KEY_PREFIX = 'neocode.qwen.apiKey.';
+export const NEO_QWEN_SECRET_OAUTH_CREDENTIAL_PREFIX = 'neocode.qwen.oauthCredential.';
 
 export type QwenAuthType = 'apiKey' | 'qwen-oauth';
 export type QwenProtocol = 'openai' | 'anthropic' | 'gemini' | 'vertex-ai';
 export type QwenCliDetectSource = 'manual' | 'env' | 'auto' | 'none';
+
+export interface IQwenStoredCredential {
+	id: string;
+	name: string;
+	authType: QwenAuthType;
+	createdAt: number;
+	updatedAt: number;
+	lastUsedAt?: number;
+}
+
+export interface IQwenOAuthStartOptions {
+	credentialId?: string;
+	credentialName?: string;
+	createNewCredential?: boolean;
+	skipExistingCheck?: boolean;
+}
 
 export interface IQwenProviderConfig {
 	authType: QwenAuthType;
@@ -24,6 +42,8 @@ export interface IQwenProviderConfig {
 	lastConnectionStatus?: 'connected' | 'error' | 'unknown';
 	lastConnectionMessage?: string;
 	lastConnectionAt?: number;
+	credentials?: IQwenStoredCredential[];
+	activeCredentialId?: string;
 }
 
 export interface IQwenDiagnostics {
@@ -68,6 +88,8 @@ export interface IQwenConfigExport {
 	baseUrl?: string;
 	envVarName: string;
 	cliPathOverride?: string;
+	credentials?: IQwenStoredCredential[];
+	activeCredentialId?: string;
 }
 
 // ─── Tool calling interfaces ──────────────────────────────────────────────────
@@ -114,11 +136,14 @@ export const IQwenAuthService = createDecorator<IQwenAuthService>('neocodeQwenAu
 export interface IQwenAuthService {
 	readonly _serviceBrand: undefined;
 	loadConfig(): IQwenProviderConfig;
-	saveApiKeyConfig(config: Partial<IQwenProviderConfig> & { apiKey: string }): Promise<void>;
+	saveApiKeyConfig(config: Partial<IQwenProviderConfig> & { apiKey: string; credentialId?: string; credentialName?: string; createNewCredential?: boolean }): Promise<void>;
 	saveOAuthSelection(config: Partial<IQwenProviderConfig>): Promise<void>;
 	testApiKeyConnection(): Promise<IQwenConnectionTestResult>;
-	startNativeOAuthFlow(onProgress?: (msg: string) => void): Promise<IQwenConnectionTestResult>;
+	startNativeOAuthFlow(onProgress?: (msg: string) => void, options?: IQwenOAuthStartOptions): Promise<IQwenConnectionTestResult>;
 	cancelNativeOAuthFlow(): void;
+	listCredentials(): IQwenStoredCredential[];
+	setActiveCredential(credentialId: string): Promise<void>;
+	removeCredential(credentialId: string): Promise<void>;
 	detectQwenCli(): Promise<IQwenCliInfo>;
 	getQwenVersion(): Promise<IQwenCliInfo>;
 	resetBrokenAuthState(): Promise<void>;

@@ -369,7 +369,7 @@ Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).regis
 		'scm.showActionButton': {
 			type: 'boolean',
 			markdownDescription: localize('showActionButton', "Controls whether an action button can be shown in the Source Control view."),
-			default: true
+			default: false
 		},
 		'scm.showInputActionButton': {
 			type: 'boolean',

@@ -1,0 +1,272 @@
+.neo-branch-modal-overlay {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+	background: rgba(0, 0, 0, 0.4);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 3000;
+	backdrop-filter: blur(2px);
+}
+
+.neo-branch-modal-container {
+	width: 600px;
+	max-height: 80vh;
+	background: var(--vscode-editorWidget-background, #252526);
+	background: rgba(30, 30, 31, 0.95);
+	backdrop-filter: blur(24px) saturate(180%);
+	border: 1px solid rgba(255, 255, 255, 0.15);
+	border-radius: 12px;
+	display: flex;
+	flex-direction: column;
+	box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+	color: #ffffff;
+	animation: neo-modal-slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+	overflow: hidden;
+}
+
+@keyframes neo-modal-slide-up {
+	from {
+		opacity: 0;
+		transform: translateY(30px) scale(0.98);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes neo-modal-fade-in {
+	from {
+		opacity: 0;
+		transform: translateY(-20px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.neo-branch-modal-header {
+	padding: 16px 20px;
+	border-bottom: 1px solid var(--vscode-widget-border);
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.neo-branch-modal-title-block h2 {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 600;
+}
+
+.neo-branch-modal-title-block p {
+	margin: 2px 0 0;
+	font-size: 13px;
+	opacity: 0.8;
+	color: #ccc;
+}
+
+.neo-branch-modal-tabs {
+	display: flex;
+	padding: 0 10px;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.neo-branch-search-container {
+	padding: 12px 20px;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.neo-branch-search-input {
+	width: 100%;
+	background: rgba(0, 0, 0, 0.2);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 6px;
+	padding: 6px 10px;
+	color: var(--vscode-foreground);
+	outline: none;
+	font-size: 13px;
+	transition: border-color 0.2s;
+}
+
+.neo-branch-search-input:focus {
+	border-color: var(--vscode-focusBorder);
+}
+
+.neo-branch-tab {
+	padding: 10px 16px;
+	cursor: pointer;
+	font-size: 13px;
+	border-bottom: 2px solid transparent;
+	opacity: 0.7;
+	transition: all 0.2s;
+}
+
+.neo-branch-tab:hover {
+	opacity: 1;
+}
+
+.neo-branch-tab.active {
+	opacity: 1;
+	border-bottom-color: var(--vscode-button-background);
+	font-weight: 600;
+}
+
+.neo-branch-modal-body {
+	padding: 10px 0;
+	overflow-y: auto;
+	flex: 1;
+	min-height: 300px;
+}
+
+.neo-branch-list {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.neo-branch-item {
+	padding: 12px 20px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	cursor: default;
+	transition: all 0.2s ease;
+	border-left: 3px solid transparent;
+	color: #e0e0e0;
+}
+
+.neo-branch-item:hover {
+	background: rgba(255, 255, 255, 0.08);
+	color: #fff;
+}
+
+.neo-branch-item.current {
+	background: rgba(255, 255, 255, 0.12);
+	border-left-color: var(--vscode-button-background);
+	color: #fff;
+}
+
+.neo-branch-info {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex: 1;
+	overflow: hidden;
+}
+
+.neo-branch-name {
+	font-size: 13px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.neo-branch-item.current .neo-branch-name {
+	font-weight: 600;
+}
+
+.neo-branch-actions {
+	display: flex;
+	gap: 6px;
+	opacity: 0;
+	transition: opacity 0.2s;
+}
+
+.neo-branch-item:hover .neo-branch-actions {
+	opacity: 1;
+}
+
+.neo-branch-btn {
+	background: rgba(255, 255, 255, 0.1);
+	color: #fff;
+	border: none;
+	padding: 6px 12px;
+	border-radius: 6px;
+	font-size: 12px;
+	cursor: pointer;
+	transition: all 0.2s;
+	font-weight: 500;
+}
+
+.neo-branch-btn:hover {
+	background: rgba(255, 255, 255, 0.15);
+	transform: translateY(-1px);
+}
+
+.neo-branch-btn.primary {
+	background: linear-gradient(135deg, #007acc 0%, #005a9e 100%);
+	box-shadow: 0 4px 12px rgba(0, 122, 204, 0.3);
+}
+
+.neo-branch-btn.primary:hover {
+	background: linear-gradient(135deg, #008be5 0%, #006ab8 100%);
+	box-shadow: 0 6px 16px rgba(0, 122, 204, 0.4);
+}
+
+.neo-branch-modal-footer {
+	padding: 16px 20px;
+	border-top: 1px solid rgba(255, 255, 255, 0.05);
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	background: rgba(0, 0, 0, 0.2);
+}
+
+.neo-branch-create-input-container {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+.neo-branch-create-input-container .neo-branch-search-input {
+	flex: 1;
+}
+
+.neo-branch-footer-buttons {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+}
+
+.neo-branch-empty {
+	padding: 40px;
+	text-align: center;
+	opacity: 0.6;
+	font-style: italic;
+	color: #aaa;
+}
+
+.neo-branch-loading-container {
+	padding: 60px;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 16px;
+	color: #ccc;
+}
+
+.neo-branch-spinner {
+	width: 32px;
+	height: 32px;
+	border: 3px solid rgba(255, 255, 255, 0.1);
+	border-top-color: var(--vscode-button-background);
+	border-radius: 50%;
+	animation: neo-spin 0.8s linear infinite;
+}
+
+@keyframes neo-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}

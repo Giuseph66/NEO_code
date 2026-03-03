@@ -117,6 +117,17 @@ export class QwenSettingsDialog extends EditorPane {
 	private renderCredentialsTab(container: HTMLElement): void {
 		DOM.append(container, DOM.$('h3', undefined, localize('neocode.qwen.credentials.title', 'Configurar Qwen')));
 		const form = DOM.append(container, DOM.$('.neocode-qwen-form'));
+		const credentials = this.authService.listCredentials();
+		const activeCredential = credentials.find(credential => credential.id === this.config.activeCredentialId);
+		const selectedCredentialId = activeCredential?.id ?? '__new__';
+		const credentialSelect = this.selectField(form, 'Credencial', selectedCredentialId, [
+			...credentials.map(credential => ({
+				value: credential.id,
+				label: `${credential.name} (${credential.authType})`,
+			})),
+			{ value: '__new__', label: 'Nova credencial...' },
+		]);
+		const credentialNameInput = this.inputField(form, 'Nome da credencial', activeCredential?.name ?? '');
 
 		const authSelect = this.selectField(form, 'Auth Type', this.config.authType, [
 			{ value: 'apiKey', label: 'API Key (Recomendado)' },
@@ -146,8 +157,31 @@ export class QwenSettingsDialog extends EditorPane {
 			}));
 		}
 
+		this._register(DOM.addDisposableListener(credentialSelect, DOM.EventType.CHANGE, async () => {
+			const selectedId = credentialSelect.value;
+			if (selectedId === '__new__') {
+				credentialNameInput.value = '';
+				return;
+			}
+			try {
+				await this.authService.setActiveCredential(selectedId);
+				this.config = this.authService.loadConfig();
+				const selected = this.authService.listCredentials().find(credential => credential.id === selectedId);
+				if (selected) {
+					credentialNameInput.value = selected.name;
+					authSelect.value = selected.authType;
+				}
+				this.render();
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				this.setStatus(message, true);
+			}
+		}));
+
 		const actions = DOM.append(container, DOM.$('.neocode-qwen-actions'));
 		this.button(actions, localize('neocode.qwen.save', 'Salvar'), async () => {
+			const selectedId = credentialSelect.value === '__new__' ? undefined : credentialSelect.value;
+			const createNewCredential = credentialSelect.value === '__new__';
 			const next: Partial<IQwenProviderConfig> = {
 				authType: authSelect.value as QwenAuthType,
 				protocol: protocolSelect.value as QwenProtocol,
@@ -162,16 +196,41 @@ export class QwenSettingsDialog extends EditorPane {
 				if (!key) {
 					return this.setStatus('API key obrigatoria para auth API Key.', true);
 				}
-				await this.authService.saveApiKeyConfig({ ...next, apiKey: key });
+				await this.authService.saveApiKeyConfig({
+					...next,
+					apiKey: key,
+					credentialId: selectedId,
+					createNewCredential,
+					credentialName: credentialNameInput.value.trim() || undefined,
+				});
 			} else {
 				await this.authService.saveOAuthSelection(next);
+				if (selectedId) {
+					await this.authService.setActiveCredential(selectedId);
+				}
 			}
 			this.config = this.authService.loadConfig();
 			this.setStatus('Configuracao salva.');
 			this.render();
 		});
 
+		this.button(actions, 'Remover credencial', async () => {
+			const selectedId = credentialSelect.value === '__new__' ? undefined : credentialSelect.value;
+			if (!selectedId) {
+				return this.setStatus('Selecione uma credencial existente para remover.', true);
+			}
+			await this.authService.removeCredential(selectedId);
+			this.config = this.authService.loadConfig();
+			this.setStatus('Credencial removida.');
+			this.render();
+		});
+
 		this.button(actions, localize('neocode.qwen.testConnection', 'Testar conexao'), async () => {
+			const selectedId = credentialSelect.value === '__new__' ? undefined : credentialSelect.value;
+			if (selectedId) {
+				await this.authService.setActiveCredential(selectedId);
+				this.config = this.authService.loadConfig();
+			}
 			const result = await this.authService.testApiKeyConnection();
 			this.setStatus(result.message, !result.ok);
 			this.config = this.authService.loadConfig();
@@ -186,9 +245,16 @@ export class QwenSettingsDialog extends EditorPane {
 			startBtn.disabled = true;
 			cancelBtn.style.display = '';
 			oauthStatus.textContent = '';
+			const selectedId = credentialSelect.value === '__new__' ? undefined : credentialSelect.value;
+			const createNewCredential = credentialSelect.value === '__new__';
 
 			const result = await this.authService.startNativeOAuthFlow((msg: string) => {
 				oauthStatus.textContent = `⏳ ${msg}`;
+			}, {
+				credentialId: selectedId,
+				credentialName: credentialNameInput.value.trim() || undefined,
+				createNewCredential,
+				skipExistingCheck: createNewCredential,
 			});
 
 			startBtn.disabled = false;

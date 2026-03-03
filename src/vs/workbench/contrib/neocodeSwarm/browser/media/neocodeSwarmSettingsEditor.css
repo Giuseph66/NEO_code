@@ -62,6 +62,8 @@
 .neocode-swarm-tab.active {
 	background: var(--vscode-list-activeSelectionBackground);
 	color: var(--vscode-list-activeSelectionForeground);
+	box-shadow: 0 0 10px rgba(0, 122, 204, 0.4);
+	border-left: 2px solid var(--vscode-focusBorder);
 }
 
 .neocode-swarm-tab.active span.codicon {
@@ -244,23 +246,33 @@
 }
 
 .neocode-provider-card {
-	padding: 12px;
-	border: 1px solid var(--vscode-widget-border, #454545);
-	border-radius: 6px;
+	padding: 14px;
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 10px;
 	cursor: pointer;
-	transition: all 0.2s;
+	transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
+	background: rgba(255, 255, 255, 0.03);
+	backdrop-filter: blur(8px);
 }
 
 .neocode-provider-card:hover {
-	background: var(--vscode-list-hoverBackground);
+	background: rgba(255, 255, 255, 0.08);
+	transform: translateY(-2px);
+	border-color: rgba(255, 255, 255, 0.2);
 }
 
 .neocode-provider-card.selected {
 	border-color: var(--vscode-focusBorder);
-	background: var(--vscode-list-inactiveSelectionBackground);
+	background: rgba(0, 122, 204, 0.15);
+	box-shadow: 0 0 15px rgba(0, 122, 204, 0.2);
+}
+
+.neocode-provider-card.disabled {
+	opacity: 0.72;
+	border-style: dashed;
 }
 
 .neocode-provider-card-title {
@@ -268,6 +280,48 @@
 	align-items: center;
 	gap: 8px;
 	font-weight: 600;
+}
+
+.neocode-provider-toggle {
+	margin-left: auto;
+	border: 1px solid var(--vscode-button-border, var(--vscode-widget-border));
+	border-radius: 999px;
+	padding: 2px 10px;
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	cursor: pointer;
+	font-size: 11px;
+	font-weight: 600;
+	min-width: 70px;
+	text-align: center;
+}
+
+.neocode-provider-toggle:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.neocode-provider-toggle.is-active {
+	border-color: var(--vscode-testing-iconPassed);
+	background: rgba(46, 160, 67, 0.18);
+	color: var(--vscode-testing-iconPassed);
+}
+
+.neocode-provider-toggle.is-inactive {
+	border-color: var(--vscode-testing-iconFailed);
+	background: rgba(220, 53, 69, 0.15);
+	color: var(--vscode-testing-iconFailed);
+}
+
+.neocode-provider-editor-controls {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 12px;
+}
+
+.neocode-provider-editor-status-label {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
 }
 
 .neocode-provider-card-subtitle {
@@ -281,18 +335,24 @@
 }
 
 .neocode-agent-card {
-	padding: 12px 16px;
-	/* Reduced padding */
-	border: 1px solid var(--vscode-widget-border, #454545);
-	border-radius: 8px;
-	margin-bottom: 16px;
-	/* Reduced margin */
-	background: var(--vscode-editor-background);
+	padding: 14px 18px;
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 12px;
+	margin-bottom: 20px;
+	background: rgba(255, 255, 255, 0.03);
+	backdrop-filter: blur(10px);
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
-	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-	transition: all 0.2s ease;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.neocode-agent-card:hover {
+	transform: translateY(-2px);
+	border-color: rgba(255, 255, 255, 0.2);
+	background: rgba(255, 255, 255, 0.06);
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
 }
 
 .neocode-agent-card.expanded {

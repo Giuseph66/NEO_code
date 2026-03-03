@@ -102,6 +102,7 @@ export class NeocodeSwarmChatParticipant extends Disposable implements IWorkbenc
 
 	private adapter: QwenRuntimeAdapter | undefined;
 	private toolExecutor: NeocodeSwarmToolExecutor | undefined;
+	private activityEditorInput: NeocodeSwarmActivityEditorInput | undefined;
 
 	constructor(
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
@@ -384,7 +385,7 @@ export class NeocodeSwarmChatParticipant extends Disposable implements IWorkbenc
 				forceMultiAgent,
 				onProgress: progress,
 				resolveApiKey: async (providerId: string) => {
-					const agentProvider = config.providers.find(p => p.id === providerId);
+					const agentProvider = config.providers.find(p => p.id === providerId && p.enabled);
 					if (agentProvider) {
 						const cred = await this.resolveCredential(agentProvider);
 						if (!cred) { return undefined; }
@@ -808,8 +809,10 @@ export class NeocodeSwarmChatParticipant extends Disposable implements IWorkbenc
 
 	private async openActivityPanel(): Promise<void> {
 		try {
-			const input = this.instantiationService.createInstance(NeocodeSwarmActivityEditorInput);
-			await this.editorService.openEditor(input, { pinned: false, revealIfOpened: true });
+			if (!this.activityEditorInput || this.activityEditorInput.isDisposed()) {
+				this.activityEditorInput = this._register(this.instantiationService.createInstance(NeocodeSwarmActivityEditorInput));
+			}
+			await this.editorService.openEditor(this.activityEditorInput, { pinned: false, revealIfOpened: true });
 		} catch (err) {
 			this.logService.warn('[neocode swarm] Could not open activity panel:', err);
 		}

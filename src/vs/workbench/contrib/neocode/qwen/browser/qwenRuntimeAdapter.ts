@@ -38,14 +38,21 @@ export interface IQwenSdkTaskOptions {
 	maxToolCallRounds?: number;
 }
 
+export interface IQwenTokenUsage {
+	promptTokens: number;
+	completionTokens: number;
+	totalTokens: number;
+}
+
 /**
  * Event chunk emitted during a streaming task.
  */
 export interface IQwenStreamChunk {
-	type: 'content' | 'tool_call' | 'done' | 'error';
+	type: 'content' | 'tool_call' | 'done' | 'error' | 'usage';
 	value?: string;
 	toolName?: string;
 	error?: string;
+	usage?: IQwenTokenUsage;
 }
 
 // ─── Default base URLs per protocol ──────────────────────────────────────────
@@ -280,7 +287,16 @@ export class QwenRuntimeAdapter extends Disposable {
 						};
 						finish_reason?: string;
 					}>;
+					usage?: {
+						prompt_tokens?: number;
+						completion_tokens?: number;
+						total_tokens?: number;
+					};
 				};
+				const usage = this.normalizeOpenAIUsage(data.usage);
+				if (usage) {
+					yield { type: 'usage', usage };
+				}
 
 				const choice = data.choices?.[0];
 				const message = choice?.message;
@@ -384,7 +400,15 @@ export class QwenRuntimeAdapter extends Disposable {
 					input?: Record<string, unknown>;
 				}>;
 				stop_reason?: string;
+				usage?: {
+					input_tokens?: number;
+					output_tokens?: number;
+				};
 			};
+			const usage = this.normalizeAnthropicUsage(data.usage);
+			if (usage) {
+				yield { type: 'usage', usage };
+			}
 
 			const contentBlocks = data.content ?? [];
 			const stopReason = data.stop_reason;
@@ -482,7 +506,16 @@ export class QwenRuntimeAdapter extends Disposable {
 						}>;
 					};
 				}>;
+				usageMetadata?: {
+					promptTokenCount?: number;
+					candidatesTokenCount?: number;
+					totalTokenCount?: number;
+				};
 			};
+			const usage = this.normalizeGeminiUsage(data.usageMetadata);
+			if (usage) {
+				yield { type: 'usage', usage };
+			}
 
 			const parts = data.candidates?.[0]?.content?.parts ?? [];
 
@@ -557,6 +590,56 @@ export class QwenRuntimeAdapter extends Disposable {
 				parameters: t.parameters,
 			})),
 		}];
+	}
+
+	private normalizeOpenAIUsage(usage: any): IQwenTokenUsage | undefined {
+		if (!usage || typeof usage !== 'object') {
+			return undefined;
+		}
+		const promptTokens = this.toSafeTokenNumber(usage.prompt_tokens);
+		const completionTokens = this.toSafeTokenNumber(usage.completion_tokens);
+		const totalTokensRaw = usage.total_tokens;
+		const totalTokens = Number.isFinite(totalTokensRaw)
+			? this.toSafeTokenNumber(totalTokensRaw)
+			: promptTokens + completionTokens;
+		if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0) {
+			return undefined;
+		}
+		return { promptTokens, completionTokens, totalTokens };
+	}
+
+	private normalizeAnthropicUsage(usage: any): IQwenTokenUsage | undefined {
+		if (!usage || typeof usage !== 'object') {
+			return undefined;
+		}
+		const promptTokens = this.toSafeTokenNumber(usage.input_tokens);
+		const completionTokens = this.toSafeTokenNumber(usage.output_tokens);
+		const totalTokens = promptTokens + completionTokens;
+		if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0) {
+			return undefined;
+		}
+		return { promptTokens, completionTokens, totalTokens };
+	}
+
+	private normalizeGeminiUsage(usage: any): IQwenTokenUsage | undefined {
+		if (!usage || typeof usage !== 'object') {
+			return undefined;
+		}
+		const promptTokens = this.toSafeTokenNumber(usage.promptTokenCount);
+		const completionTokens = this.toSafeTokenNumber(usage.candidatesTokenCount);
+		const totalTokenCount = this.toSafeTokenNumber(usage.totalTokenCount);
+		const totalTokens = totalTokenCount > 0 ? totalTokenCount : (promptTokens + completionTokens);
+		if (promptTokens === 0 && completionTokens === 0 && totalTokens === 0) {
+			return undefined;
+		}
+		return { promptTokens, completionTokens, totalTokens };
+	}
+
+	private toSafeTokenNumber(value: unknown): number {
+		if (typeof value !== 'number' || !Number.isFinite(value)) {
+			return 0;
+		}
+		return Math.max(0, Math.floor(value));
 	}
 
 	// ─── OpenAI-compatible streaming (Qwen/DashScope, OpenAI, etc.) ──────
@@ -1000,7 +1083,16 @@ export class QwenRuntimeAdapter extends Disposable {
 						delta?: { content?: string; tool_calls?: Array<{ function?: { name?: string } }> };
 						finish_reason?: string | null;
 					}>;
+					usage?: {
+						prompt_tokens?: number;
+						completion_tokens?: number;
+						total_tokens?: number;
+					};
 				};
+				const usage = this.normalizeOpenAIUsage(parsed.usage);
+				if (usage) {
+					yield { type: 'usage', usage };
+				}
 
 				const delta = parsed.choices?.[0]?.delta;
 				if (delta?.content) {
@@ -1091,7 +1183,16 @@ export class QwenRuntimeAdapter extends Disposable {
 							candidates?: Array<{
 								content?: { parts?: Array<{ text?: string }> };
 							}>;
+							usageMetadata?: {
+								promptTokenCount?: number;
+								candidatesTokenCount?: number;
+								totalTokenCount?: number;
+							};
 						};
+						const usage = this.normalizeGeminiUsage(parsed.usageMetadata);
+						if (usage) {
+							yield { type: 'usage', usage };
+						}
 
 						const text = parsed.candidates?.[0]?.content?.parts?.find(p => typeof p.text === 'string')?.text;
 						if (text) {
@@ -1150,6 +1251,10 @@ export class QwenRuntimeAdapter extends Disposable {
 
 					try {
 						const parsed = JSON.parse(data);
+						const anthropicUsage = this.normalizeAnthropicUsage(parsed.usage ?? parsed.message?.usage);
+						if (anthropicUsage) {
+							yield { type: 'usage', usage: anthropicUsage };
+						}
 						if (currentEvent === 'content_block_delta' && parsed.delta?.text) {
 							yield { type: 'content', value: parsed.delta.text };
 						} else if (currentEvent === 'message_stop') {

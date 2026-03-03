@@ -262,31 +262,65 @@ export interface ISwarmExecutionPlan {
 	directAnswer?: string;
 	agents: ISwarmAgentPlan[];
 	needsTimeBudget: boolean;
+	/** Whether orchestration should use a multi-agent swarm for this task. */
+	shouldUseSwarm?: boolean;
+	/** Approximate effort estimation for completing the task. */
+	estimatedEffortSeconds?: number;
 }
 
 export type SwarmAgentStatus = 'pending' | 'thinking' | 'working' | 'done' | 'error';
+
+export interface ISwarmToolUsageDetails {
+	toolCallId?: string;
+	arguments?: Record<string, unknown>;
+	result?: string;
+	isError?: boolean;
+	durationMs?: number;
+}
 
 export interface ISwarmAgentLogEntry {
 	type: 'thinking' | 'tool' | 'message' | 'error';
 	content: string;
 	timestamp: number;
+	details?: ISwarmToolUsageDetails;
+}
+
+export interface ISwarmTokenUsage {
+	promptTokens: number;
+	completionTokens: number;
+	totalTokens: number;
 }
 
 export interface ISwarmAgentState {
 	plan: ISwarmAgentPlan;
 	status: SwarmAgentStatus;
 	logs: ISwarmAgentLogEntry[];
+	tokenUsage: ISwarmTokenUsage;
 	result?: string;
 	error?: string;
+}
+
+export type SwarmOrchestratorLogKind = 'status' | 'decision' | 'dispatch' | 'result' | 'error' | 'info';
+
+export interface ISwarmOrchestratorLogEntry {
+	kind: SwarmOrchestratorLogKind;
+	content: string;
+	timestamp: number;
+	details?: string;
+	round?: number;
+	agentId?: string;
 }
 
 export interface ISwarmActivitySession {
 	sessionId: string;
 	plan: ISwarmExecutionPlan;
 	agentStates: Map<string, ISwarmAgentState>;
+	tokenUsage: ISwarmTokenUsage;
+	orchestratorLogs: ISwarmOrchestratorLogEntry[];
 	orchestratorStatus: string;
 	startTime: number;
 	endTime?: number;
+	budgetSeconds?: number;
 	complete: boolean;
 }
 

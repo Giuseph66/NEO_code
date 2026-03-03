@@ -45,6 +45,10 @@ const MAX_SEARCH_DEPTH = 6;
 const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024;
 /** Directories always skipped during traversal. */
 const SKIP_DIRS = new Set(['node_modules', '.git', 'out', 'dist', '.next', '.cache', '__pycache__', '.venv', 'target', 'build']);
+const DEFAULT_TERMINAL_TIMEOUT_SECONDS = 30;
+const MIN_TERMINAL_TIMEOUT_SECONDS = 1;
+const MAX_TERMINAL_TIMEOUT_SECONDS = 300;
+const MAX_TERMINAL_OUTPUT_CHARS = 120_000;
 
 /**
  * Implements all code-editing tools available to swarm agents.
@@ -199,27 +203,31 @@ export class NeocodeSwarmToolExecutor extends Disposable implements INeocodeTool
 					required: ['pattern']
 				}
 				},
-			{
-				name: 'run_terminal',
-				description:
-					'Execute a shell command and return its combined stdout/stderr output. ' +
-					'Use for running builds, tests, package installs, git operations, or any shell task. ' +
-					'Commands time out after 30 seconds.',
-				parameters: {
-					type: 'object',
-					properties: {
-						command: {
-							type: 'string',
-							description: 'Shell command to execute.'
+				{
+					name: 'run_terminal',
+					description:
+						'Execute a shell command and return its combined stdout/stderr output. ' +
+						'Use for running builds, tests, package installs, git operations, or any shell task. ' +
+						'Supports optional timeout_seconds (default 30s, max 300s).',
+					parameters: {
+						type: 'object',
+						properties: {
+							command: {
+								type: 'string',
+								description: 'Shell command to execute.'
+							},
+							working_dir: {
+								type: 'string',
+								description: 'Working directory (relative to workspace root, or absolute). Defaults to workspace root.'
+							},
+							timeout_seconds: {
+								type: 'number',
+								description: 'Command timeout in seconds (1-300). Default: 30.'
+							}
 						},
-						working_dir: {
-							type: 'string',
-							description: 'Working directory (relative to workspace root, or absolute). Defaults to workspace root.'
-						}
-					},
-					required: ['command']
-				}
-			},
+						required: ['command']
+					}
+				},
 			{
 				name: 'web_fetch',
 				description:
@@ -308,12 +316,13 @@ export class NeocodeSwarmToolExecutor extends Disposable implements INeocodeTool
 					);
 					break;
 
-				case 'run_terminal':
-					content = await this.runTerminal(
-						String(args['command']),
-						args['working_dir'] as string | undefined
-					);
-					break;
+					case 'run_terminal':
+						content = await this.runTerminal(
+							String(args['command']),
+							args['working_dir'] as string | undefined,
+							args['timeout_seconds'] as number | undefined
+						);
+						break;
 
 				case 'web_fetch':
 					content = await this.webFetch(String(args['url']));
@@ -600,7 +609,14 @@ export class NeocodeSwarmToolExecutor extends Disposable implements INeocodeTool
 
 	// ─── run_terminal ───────────────────────────────────────────────────────────
 
-	private async runTerminal(command: string, workingDir?: string): Promise<string> {
+	private async runTerminal(command: string, workingDir?: string, timeoutSeconds?: number): Promise<string> {
+		const trimmedCommand = command.trim();
+		if (!trimmedCommand) {
+			return 'Error: command cannot be empty.';
+		}
+
+		const normalizedTimeoutSeconds = this.normalizeTerminalTimeoutSeconds(timeoutSeconds);
+		const timeoutMs = normalizedTimeoutSeconds * 1000;
 		const cwd = workingDir
 			? (workingDir.startsWith('/') || /^[A-Za-z]:[/\\]/.test(workingDir)
 				? workingDir
@@ -608,39 +624,50 @@ export class NeocodeSwarmToolExecutor extends Disposable implements INeocodeTool
 			: this.workspaceRoot().fsPath;
 
 		try {
-			type ExecCallback = (err: { code?: number; message: string } | null, stdout: string, stderr: string) => void;
+			type ExecError = { code?: number; killed?: boolean; signal?: string; message: string };
+			type ExecCallback = (err: ExecError | null, stdout: string, stderr: string) => void;
 			type ExecFn = (cmd: string, opts: { cwd?: string; maxBuffer?: number; timeout?: number }, cb: ExecCallback) => void;
 			// eslint-disable-next-line @typescript-eslint/no-require-imports
 			const cp = require('child_process') as { exec: ExecFn };
 			return await new Promise<string>(resolve => {
-				cp.exec(command, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (error, stdout, stderr) => {
-					const parts = [stdout.trimEnd(), stderr.trimEnd() ? `[stderr]\n${stderr.trimEnd()}` : ''].filter(Boolean);
-					const output = parts.join('\n');
-					if (error) {
-						resolve(`Exit code ${error.code ?? 1}:\n${output || error.message}`);
-					} else {
-						resolve(output || '(no output)');
-					}
+				const startedAt = Date.now();
+				cp.exec(trimmedCommand, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs }, (error, stdout, stderr) => {
+					const durationMs = Date.now() - startedAt;
+					const timedOut = !!(error && error.killed && error.signal);
+					const formatted = this.formatTerminalOutput({
+						command: trimmedCommand,
+						cwd,
+						timeoutSeconds: normalizedTimeoutSeconds,
+						durationMs,
+						exitCode: error?.code,
+						stdout,
+						stderr,
+						timedOut,
+						errorMessage: error?.message,
+					});
+					resolve(formatted);
 				});
 			});
 		} catch {
 			// Web/sandboxed mode: use integrated terminal with file output redirection
-			return this.runViaTerminal(command, cwd);
+			return this.runViaTerminal(trimmedCommand, cwd, normalizedTimeoutSeconds);
 		}
 	}
 
-	private async runViaTerminal(command: string, cwd: string): Promise<string> {
+	private async runViaTerminal(command: string, cwd: string, timeoutSeconds: number): Promise<string> {
 		const outFile = `/tmp/neo-cmd-${Date.now()}.txt`;
+		const timeoutMs = timeoutSeconds * 1000;
 		try {
 			const existingTerminal = this.terminalService.instances.find(t => t.title === 'NeoCode Agent');
 			const terminal = existingTerminal ?? await this.terminalService.createTerminal({
 				config: { name: 'NeoCode Agent' },
 				cwd: URI.file(cwd),
 			});
+			const startedAt = Date.now();
 			await terminal.sendText(`(cd "${cwd}" && ${command}) > "${outFile}" 2>&1; echo "NEOEXIT:$?" >> "${outFile}"`, true);
 
 			const start = Date.now();
-			while (Date.now() - start < 30000) {
+			while (Date.now() - start < timeoutMs) {
 				await new Promise<void>(resolve => setTimeout(resolve, 500));
 				try {
 					const buf = await this.fileService.readFile(URI.file(outFile));
@@ -649,12 +676,84 @@ export class NeocodeSwarmToolExecutor extends Disposable implements INeocodeTool
 						const exitMatch = text.match(/NEOEXIT:(\d+)/);
 						const exitCode = exitMatch ? parseInt(exitMatch[1]) : 0;
 						const output = text.replace(/NEOEXIT:\d+\n?$/, '').trimEnd();
-						return exitCode !== 0 ? `Exit code ${exitCode}:\n${output}` : (output || '(no output)');
+						return this.formatTerminalOutput({
+							command,
+							cwd,
+							timeoutSeconds,
+							durationMs: Date.now() - startedAt,
+							exitCode,
+							stdout: output,
+							stderr: '',
+							timedOut: false,
+						});
 					}
 				} catch { /* file not yet written */ }
 			}
 		} catch { /* terminal creation failed */ }
-		return 'Command timed out after 30 seconds. Check the "NeoCode Agent" terminal for status.';
+		return this.formatTerminalOutput({
+			command,
+			cwd,
+			timeoutSeconds,
+			durationMs: timeoutMs,
+			exitCode: 124,
+			stdout: '',
+			stderr: '',
+			timedOut: true,
+			errorMessage: `Command timed out after ${timeoutSeconds} seconds. Check the "NeoCode Agent" terminal for status.`,
+		});
+	}
+
+	private normalizeTerminalTimeoutSeconds(timeoutSeconds: number | undefined): number {
+		if (typeof timeoutSeconds !== 'number' || !Number.isFinite(timeoutSeconds)) {
+			return DEFAULT_TERMINAL_TIMEOUT_SECONDS;
+		}
+		const rounded = Math.floor(timeoutSeconds);
+		return Math.max(MIN_TERMINAL_TIMEOUT_SECONDS, Math.min(MAX_TERMINAL_TIMEOUT_SECONDS, rounded));
+	}
+
+	private truncateTerminalOutput(value: string): string {
+		if (value.length <= MAX_TERMINAL_OUTPUT_CHARS) {
+			return value;
+		}
+		return `${value.slice(0, MAX_TERMINAL_OUTPUT_CHARS)}\n...[output truncated]`;
+	}
+
+	private formatTerminalOutput(payload: {
+		command: string;
+		cwd: string;
+		timeoutSeconds: number;
+		durationMs: number;
+		exitCode?: number;
+		stdout: string;
+		stderr: string;
+		timedOut: boolean;
+		errorMessage?: string;
+	}): string {
+		const stdout = this.truncateTerminalOutput(payload.stdout.trimEnd());
+		const stderr = this.truncateTerminalOutput(payload.stderr.trimEnd());
+		const header = [
+			`Command: ${payload.command}`,
+			`CWD: ${payload.cwd}`,
+			`Timeout: ${payload.timeoutSeconds}s`,
+			`Duration: ${(payload.durationMs / 1000).toFixed(2)}s`,
+			`Exit Code: ${payload.exitCode ?? (payload.timedOut ? 124 : 0)}`,
+			payload.timedOut ? 'Timed Out: yes' : 'Timed Out: no',
+		].join('\n');
+
+		const sections: string[] = [header];
+		if (stdout) {
+			sections.push(`STDOUT:\n${stdout}`);
+		}
+		if (stderr) {
+			sections.push(`STDERR:\n${stderr}`);
+		}
+		if (!stdout && !stderr) {
+			sections.push('Output: (no output)');
+		}
+		if (payload.errorMessage && payload.errorMessage.trim().length > 0) {
+			sections.push(`Error: ${payload.errorMessage.trim()}`);
+		}
+		return sections.join('\n\n');
 	}
 
 	// ─── web_fetch ───────────────────────────────────────────────────────────────

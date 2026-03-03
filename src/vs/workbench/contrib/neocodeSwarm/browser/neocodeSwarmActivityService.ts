@@ -8,8 +8,11 @@ import { Disposable } from '../../../../base/common/lifecycle.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
 import {
 	ISwarmExecutionPlan,
+	ISwarmAgentPlan,
 	ISwarmAgentState,
 	ISwarmActivitySession,
+	ISwarmOrchestratorLogEntry,
+	ISwarmTokenUsage,
 } from '../common/neocodeSwarmTypes.js';
 import { IAgentProgressUpdate } from './neocodeSwarmAgentRunner.js';
 
@@ -23,8 +26,10 @@ export interface INeocodeSwarmActivityService {
 	/** Fired when a new session with agents starts (triggers panel auto-open). */
 	readonly onDidStartSession: Event<ISwarmActivitySession>;
 
-	startSession(sessionId: string, plan: ISwarmExecutionPlan): void;
+	startSession(sessionId: string, plan: ISwarmExecutionPlan, budgetSeconds?: number): void;
+	addAgent(sessionId: string, plan: ISwarmAgentPlan): void;
 	updateAgent(sessionId: string, update: IAgentProgressUpdate): void;
+	appendOrchestratorLog(sessionId: string, entry: Omit<ISwarmOrchestratorLogEntry, 'timestamp'> & { timestamp?: number }): void;
 	setOrchestratorStatus(sessionId: string, status: string): void;
 	completeSession(sessionId: string): void;
 	getCurrentSession(): ISwarmActivitySession | undefined;
@@ -45,13 +50,14 @@ export class NeocodeSwarmActivityService extends Disposable implements INeocodeS
 		super();
 	}
 
-	startSession(sessionId: string, plan: ISwarmExecutionPlan): void {
+	startSession(sessionId: string, plan: ISwarmExecutionPlan, budgetSeconds?: number): void {
 		const agentStates = new Map<string, ISwarmAgentState>();
 		for (const agentPlan of plan.agents) {
 			agentStates.set(agentPlan.id, {
 				plan: agentPlan,
 				status: 'pending',
 				logs: [],
+				tokenUsage: this.createZeroTokenUsage(),
 			});
 		}
 
@@ -59,13 +65,33 @@ export class NeocodeSwarmActivityService extends Disposable implements INeocodeS
 			sessionId,
 			plan,
 			agentStates,
+			tokenUsage: this.createZeroTokenUsage(),
+			orchestratorLogs: [],
 			orchestratorStatus: '🚀 Despachando agentes...',
 			startTime: Date.now(),
+			budgetSeconds,
 			complete: false,
 		};
 
 		this._onDidChange.fire(this._currentSession);
 		this._onDidStartSession.fire(this._currentSession);
+	}
+
+	addAgent(sessionId: string, plan: ISwarmAgentPlan): void {
+		if (this._currentSession?.sessionId !== sessionId) { return; }
+		if (this._currentSession.agentStates.has(plan.id)) { return; }
+
+		if (!this._currentSession.plan.agents.some(agent => agent.id === plan.id)) {
+			this._currentSession.plan.agents.push(plan);
+		}
+		this._currentSession.agentStates.set(plan.id, {
+			plan,
+			status: 'pending',
+			logs: [],
+			tokenUsage: this.createZeroTokenUsage(),
+		});
+		this.recomputeSessionTokenUsage();
+		this._onDidChange.fire(this._currentSession);
 	}
 
 	updateAgent(sessionId: string, update: IAgentProgressUpdate): void {
@@ -75,11 +101,18 @@ export class NeocodeSwarmActivityService extends Disposable implements INeocodeS
 		if (!state) { return; }
 
 		state.status = update.status;
+		if (update.tokenUsage) {
+			state.tokenUsage = {
+				promptTokens: Math.max(0, Math.floor(update.tokenUsage.promptTokens)),
+				completionTokens: Math.max(0, Math.floor(update.tokenUsage.completionTokens)),
+				totalTokens: Math.max(0, Math.floor(update.tokenUsage.totalTokens)),
+			};
+		}
 		if (update.log) {
 			state.logs.push(update.log);
-			// Keep only the last 50 log entries per agent to avoid memory growth
-			if (state.logs.length > 50) {
-				state.logs.splice(0, state.logs.length - 50);
+			// Keep a larger buffer so the user can inspect detailed history.
+			if (state.logs.length > 250) {
+				state.logs.splice(0, state.logs.length - 250);
 			}
 		}
 
@@ -94,6 +127,20 @@ export class NeocodeSwarmActivityService extends Disposable implements INeocodeS
 			state.error = errorLog?.content;
 		}
 
+		this.recomputeSessionTokenUsage();
+
+		this._onDidChange.fire(this._currentSession);
+	}
+
+	appendOrchestratorLog(sessionId: string, entry: Omit<ISwarmOrchestratorLogEntry, 'timestamp'> & { timestamp?: number }): void {
+		if (this._currentSession?.sessionId !== sessionId) { return; }
+		this._currentSession.orchestratorLogs.push({
+			...entry,
+			timestamp: entry.timestamp ?? Date.now(),
+		});
+		if (this._currentSession.orchestratorLogs.length > 400) {
+			this._currentSession.orchestratorLogs.splice(0, this._currentSession.orchestratorLogs.length - 400);
+		}
 		this._onDidChange.fire(this._currentSession);
 	}
 
@@ -112,5 +159,26 @@ export class NeocodeSwarmActivityService extends Disposable implements INeocodeS
 
 	getCurrentSession(): ISwarmActivitySession | undefined {
 		return this._currentSession;
+	}
+
+	private createZeroTokenUsage(): ISwarmTokenUsage {
+		return { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+	}
+
+	private recomputeSessionTokenUsage(): void {
+		if (!this._currentSession) { return; }
+		let promptTokens = 0;
+		let completionTokens = 0;
+		let totalTokens = 0;
+		for (const state of this._currentSession.agentStates.values()) {
+			promptTokens += state.tokenUsage.promptTokens;
+			completionTokens += state.tokenUsage.completionTokens;
+			totalTokens += state.tokenUsage.totalTokens;
+		}
+		this._currentSession.tokenUsage = {
+			promptTokens,
+			completionTokens,
+			totalTokens,
+		};
 	}
 }
